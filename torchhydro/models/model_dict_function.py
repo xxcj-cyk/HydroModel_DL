@@ -1,14 +1,11 @@
 from torchhydro.models.dpl4hbv import DplLstmHbv, DplAnnHbv
 from torchhydro.models.cudnnlstm import (
     CudnnLstmModel,
-    LinearCudnnLstmModel,
-    CNN1dLCmodel,
-    CudnnLstmModelLstmKernel,
+    SimpleLSTM,
     CudnnLstmModelMultiOutput,
-    CpuLstmModel,
 )
 
-from torchhydro.models.simple_lstm import SimpleLSTMForecast
+from torchhydro.models.lstm import SimpleLSTMForecast
 from torch.optim import Adam, SGD, Adadelta
 from torchhydro.models.crits import (
     RMSELoss,
@@ -24,11 +21,8 @@ from torchhydro.models.dpl4gr4j import DplLstmGr4j
 Utility dictionaries to map a string to a class.
 """
 pytorch_model_dict = {
+    "SimpleLSTM": SimpleLSTM,
     "KuaiLSTM": CudnnLstmModel,
-    "CpuLSTM": CpuLstmModel,
-    "KaiLSTM": LinearCudnnLstmModel,
-    "DapengCNNLSTM": CNN1dLCmodel,
-    "LSTMKernel": CudnnLstmModelLstmKernel,
     "KuaiLSTMMultiOut": CudnnLstmModelMultiOutput,
     "DplLstmHbv": DplLstmHbv,
     "DplLstmGr4j": DplLstmGr4j,
