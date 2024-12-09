@@ -5,21 +5,6 @@ from torch.nn import functional as F
 
 class KernelConv(nn.Module):
     def __init__(self, a, theta, kernel_size):
-        """
-        The convolution kernel for the convolution operation in routing module
-
-        We use two-parameter gamma distribution to determine the unit hydrograph,
-        which comes from [mizuRoute](http://www.geosci-model-dev.net/9/2223/2016/)
-
-        Parameters
-        ----------
-        a
-            shape parameter
-        theta
-            timescale parameter
-        kernel_size
-            the size of conv kernel
-        """
         super(KernelConv, self).__init__()
         self.a = a
         self.theta = theta
@@ -28,19 +13,6 @@ class KernelConv(nn.Module):
         self.uh_gamma = uh_gamma(routa, routb, len_uh=kernel_size)
 
     def forward(self, x):
-        """
-        1d-convolution calculation
-
-        Parameters
-        ----------
-        x
-            x is a sequence-first variable, so the dim of x is [seq, batch, feature]
-
-        Returns
-        -------
-        torch.Tensor
-            convolution
-        """
         # dim: permute from [len_uh, batch, feature] to [batch, feature, len_uh]
         uh = self.uh_gamma.permute(1, 2, 0)
         # the dim of conv kernel in F.conv1d is out_channels, in_channels (feature)/groups, width (seq)
@@ -58,21 +30,6 @@ class KernelConv(nn.Module):
 
 
 def uh_conv(x, uh_made) -> torch.Tensor:
-    """
-    Function for 1d-convolution calculation
-
-    Parameters
-    ----------
-    x
-        x is a sequence-first variable, so the dim of x is [seq, batch, feature]
-    uh_made
-        unit hydrograph from uh_gamma or other unit-hydrograph method
-
-    Returns
-    -------
-    torch.Tensor
-        convolution, [seq, batch, feature]; the length of seq is same as x's
-    """
     uh = uh_made.permute(1, 2, 0)
     # the dim of conv kernel in F.conv1d is out_channels, in_channels (feature)/groups, width (seq)
     # the dim of inputs in F.conv1d are batch, in_channels (feature) and width (seq),
@@ -89,26 +46,6 @@ def uh_conv(x, uh_made) -> torch.Tensor:
 
 
 def uh_gamma(a, theta, len_uh=10):
-    """
-    A simple two-parameter Gamma distribution as a unit-hydrograph to route instantaneous runoff from a hydrologic model
-
-    The method comes from mizuRoute -- http://www.geosci-model-dev.net/9/2223/2016/
-
-    Parameters
-    ----------
-    a
-        shape parameter
-    theta
-        timescale parameter
-    len_uh
-        the time length of the unit hydrograph
-
-    Returns
-    -------
-    torch.Tensor
-        the unit hydrograph, dim: [seq, batch, feature]
-
-    """
     # dims of a: time_seq (same all time steps), batch, feature=1
     m = a.shape
     assert len_uh <= m[0]

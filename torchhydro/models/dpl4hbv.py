@@ -1,27 +1,14 @@
-from typing import Union
-
-import torch
 import numpy as np
+import torch
 from torch import nn
-
-from torchhydro.configs.model_config import MODEL_PARAM_DICT
-from torchhydro.models.dpl4xaj import lstm_pbm, SimpleLSTM
-from torchhydro.models.kernel_conv import uh_conv, uh_gamma
+from torch.nn import functional as F
+from configs.model_config import MODEL_PARAM_DICT
+from models.lstm import StandardLSTM
+from models.kernel_conv import uh_conv, uh_gamma
 
 
 class Hbv4Dpl(torch.nn.Module):
-    """HBV Model Pytorch version"""
-
     def __init__(self, warmup_length, kernel_size=15):
-        """Initiate a HBV instance
-
-        Parameters
-        ----------
-        warmup_length : _type_
-            _description_
-        kernel_size : int, optional
-            conv kernel for unit hydrograph, by default 15
-        """
         super(Hbv4Dpl, self).__init__()
         self.name = "HBV"
         self.params_names = MODEL_PARAM_DICT["hbv"]["param_name"]
@@ -47,50 +34,7 @@ class Hbv4Dpl(torch.nn.Module):
 
     def forward(
         self, x, parameters, out_state=False, rout_opt=True
-    ) -> Union[tuple, torch.Tensor]:
-        """
-        Runs the HBV-light hydrological model (Seibert, 2005).
-
-        The code comes from mhpi/hydro-dev.
-        NaN values have to be removed from the inputs.
-
-        Parameters
-        ----------
-        x
-            p_all = array with daily values of precipitation (mm/d)
-            pet_all = array with daily values of potential evapotranspiration (mm/d)
-            t_all = array with daily values of air temperature (deg C)
-        parameters
-            array with parameter values having the following structure and scales
-            BETA: parameter in soil routine
-            FC: maximum soil moisture content
-            K0: recession coefficient
-            K1: recession coefficient
-            K2: recession coefficient
-            LP: limit for potential evapotranspiration
-            PERC: percolation from upper to lower response box
-            UZL: upper zone limit
-            TT: temperature limit for snow/rain; distinguish rainfall from snowfall
-            CFMAX: degree day factor; used for melting calculation
-            CFR: refreezing factor
-            CWH: liquid water holding capacity of the snowpack
-            A: parameter of mizuRoute
-            THETA: parameter of mizuRoute
-        out_state
-            if True, the state variables' value will be output
-        rout_opt
-            if True, route module will be performed
-
-        Returns
-        -------
-        Union[tuple, torch.Tensor]
-            q_sim = daily values of simulated streamflow (mm)
-            sm = soil storage (mm)
-            suz = upper zone storage (mm)
-            slz = lower zone storage (mm)
-            snowpack = snow depth (mm)
-            et_act = actual evaporation (mm)
-        """
+    ):
         hbv_device = x.device
         precision = 1e-5
         buffer_time = self.warmup_length
@@ -282,85 +226,19 @@ class DplLstmHbv(nn.Module):
         param_limit_func="sigmoid",
         param_test_way="final",
     ):
-        """
-        Differential Parameter learning model: LSTM -> Param -> XAJ
-
-        The principle can be seen here: https://doi.org/10.1038/s41467-021-26107-z
-
-        Parameters
-        ----------
-        n_input_features
-            the number of input features of LSTM
-        n_output_features
-            the number of output features of LSTM, and it should be equal to the number of learning parameters in XAJ
-        n_hidden_states
-            the number of hidden features of LSTM
-        kernel_size
-            size for unit hydrograph
-        warmup_length
-            the time length of warmup period
-        param_limit_func
-            function used to limit the range of params; now it is sigmoid or clamp function
-        param_test_way
-            how we use parameters from dl model when testing;
-            now we have three ways:
-            1. "final" -- use the final period's parameter for each period
-            2. "mean_time" -- Mean values of all periods' parameters is used
-            3. "mean_basin" -- Mean values of all basins' final periods' parameters is used
-        """
         super(DplLstmHbv, self).__init__()
-        self.dl_model = SimpleLSTM(n_input_features, n_output_features, n_hidden_states)
+        self.dl_model = StandardLSTM(
+            n_input_features, n_output_features, n_hidden_states
+        )
         self.pb_model = Hbv4Dpl(warmup_length, kernel_size)
         self.param_func = param_limit_func
         self.param_test_way = param_test_way
 
     def forward(self, x, z):
-        """
-        Differential parameter learning
-
-        z (normalized input) -> lstm -> param -> + x (not normalized) -> xaj -> q
-        Parameters will be denormalized in xaj model
-
-        Parameters
-        ----------
-        x
-            not normalized data used for physical model; a sequence-first 3-dim tensor. [sequence, batch, feature]
-        z
-            normalized data used for DL model; a sequence-first 3-dim tensor. [sequence, batch, feature]
-
-        Returns
-        -------
-        torch.Tensor
-            one time forward result
-        """
         return lstm_pbm(self.dl_model, self.pb_model, self.param_func, x, z)
 
 
 def lstm_pbm(dl_model, pb_model, param_func, x, z):
-    """
-    Differential parameter learning
-
-    z (normalized input) -> lstm -> param -> + x (not normalized) -> pbm -> q
-    Parameters will be denormalized in pbm model
-
-    Parameters
-    ----------
-    dl_model
-        lstm model
-    pb_model
-        physics-based model
-    param_func
-        function used to limit the range of params; now it is sigmoid or clamp function
-    x
-        not normalized data used for physical model; a sequence-first 3-dim tensor. [sequence, batch, feature]
-    z
-        normalized data used for DL model; a sequence-first 3-dim tensor. [sequence, batch, feature]
-
-    Returns
-    -------
-    torch.Tensor
-            one time forward result
-    """
     gen = dl_model(z)
     if torch.isnan(gen).any():
         raise ValueError("Error: NaN values detected. Check your data firstly!!!")

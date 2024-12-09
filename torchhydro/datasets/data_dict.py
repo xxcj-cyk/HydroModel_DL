@@ -14,7 +14,6 @@ from torchhydro.datasets.data_sets import (
     DplDataset,
     FlexibleDataset,
     Seq2SeqDataset,
-    SeqForecastDataset,
     TransformerDataset,
 )
 
@@ -25,6 +24,5 @@ datasets_dict = {
     "DplDataset": DplDataset,
     "FlexDataset": FlexibleDataset,
     "Seq2SeqDataset": Seq2SeqDataset,
-    "SeqForecastDataset": SeqForecastDataset,
     "TransformerDataset": TransformerDataset,
 }
