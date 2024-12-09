@@ -1,0 +1,12 @@
+{
+    "python.analysis.typeCheckingMode": "off",
+    "terminal.integrated.env.linux": { "PYTHONPATH": "${workspaceFolder}"},
+    "terminal.integrated.env.windows": { "PYTHONPATH": "${workspaceFolder}"},
+    "terminal.integrated.env.osx": { "PYTHONPATH": "${workspaceFolder}"},
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.testing.pytestArgs": [
+      "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+  }
