@@ -203,6 +203,7 @@ def default_config_file():
             "sampler": None,
         },
         "training_cfgs": {
+            "random_seed": 1111,
             "master_addr": "localhost",
             "port": "12335",
             # if train_mode is False, don't train and evaluate
@@ -240,7 +241,6 @@ def default_config_file():
             # Then we need retrain the model with saved weights, and the start_epoch is not 1 yet.
             "start_epoch": 1,
             "batch_size": 100,
-            "random_seed": 1234,
             "device": [0, 1, 2],
             "multi_targets": 1,
             "num_workers": 0,
@@ -299,10 +299,10 @@ def cmd(
     fl_local_ep=None,
     fl_local_bs=None,
     fl_frac=None,
+    rs=None,
     master_addr=None,
     port=None,
     ctx=None,
-    rs=None,
     gage_id_file=None,
     gage_id=None,
     train_period=None,
@@ -434,6 +434,8 @@ def cmd(
         default=fl_frac,
         type=float,
     )
+
+    parser.add_argument("--rs", dest="rs", help="random seed", default=rs, type=int)
     parser.add_argument(
         "--master_addr",
         dest="master_addr",
@@ -455,7 +457,6 @@ def cmd(
         default=ctx,
         nargs="+",
     )
-    parser.add_argument("--rs", dest="rs", help="random seed", default=rs, type=int)
     # There is something wrong with "bool", so I used 1 as True, 0 as False
     parser.add_argument(
         "--train_mode",
@@ -895,14 +896,15 @@ def update_cfg(cfg_file, new_args):
         cfg_file["model_cfgs"]["fl_hyperparam"]["fl_local_bs"] = new_args.fl_local_bs
     if new_args.fl_frac is not None:
         cfg_file["model_cfgs1"]["fl_hyperparam"]["fl_frac"] = new_args.fl_frac
+
+    if new_args.rs is not None:
+        cfg_file["training_cfgs"]["random_seed"] = new_args.rs
     if new_args.master_addr is not None:
         cfg_file["training_cfgs"]["master_addr"] = new_args.master_addr
     if new_args.port is not None:
         cfg_file["training_cfgs"]["port"] = new_args.port
     if new_args.ctx is not None:
         cfg_file["training_cfgs"]["device"] = new_args.ctx
-    if new_args.rs is not None:
-        cfg_file["training_cfgs"]["random_seed"] = new_args.rs
     if new_args.train_mode is not None:
         cfg_file["training_cfgs"]["train_mode"] = bool(new_args.train_mode > 0)
     if new_args.loss_func is not None:

@@ -3,7 +3,6 @@ from datetime import datetime
 import os
 from pathlib import Path
 import random
-
 import numpy as np
 from typing import Dict
 import pandas as pd
@@ -14,19 +13,6 @@ from torchhydro.trainers.resulter import Resulter
 
 
 def set_random_seed(seed):
-    """
-    Set a random seed to guarantee the reproducibility
-
-    Parameters
-    ----------
-    seed
-        a number
-
-    Returns
-    -------
-    None
-    """
-    # print("Random seed:", seed)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -35,18 +21,6 @@ def set_random_seed(seed):
 
 
 def train_and_evaluate(cfgs: Dict):
-    """
-    Function to train and test a Model
-
-    Parameters
-    ----------
-    cfgs
-        Dictionary containing all configs needed to run the model
-
-    Returns
-    -------
-    None
-    """
     random_seed = cfgs["training_cfgs"]["random_seed"]
     set_random_seed(random_seed)
     resulter = Resulter(cfgs)
