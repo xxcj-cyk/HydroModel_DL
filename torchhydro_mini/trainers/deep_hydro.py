@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from torchhydro.configs.config import update_nested_dict
-from torchhydro.datasets.data_dict import datasets_dict
+from torchhydro.datasets.data_dict import datasets_dirction_dict
 from torchhydro.datasets.data_sets import BaseDataset
 from torchhydro.datasets.sampler import (
     fl_sample_basin,
@@ -205,13 +205,13 @@ class DeepHydro(DeepHydroInterface):
         Returns
         -------
         object
-            an object initializing from class in datasets_dict in data_dict.py
+            an object initializing from class in datasets_dirction_dict in data_dict.py
         """
         data_cfgs = self.cfgs["data_cfgs"]
         dataset_name = data_cfgs["dataset"]
 
-        if dataset_name in list(datasets_dict.keys()):
-            dataset = datasets_dict[dataset_name](data_cfgs, is_tra_val_te)
+        if dataset_name in list(datasets_dirction_dict.keys()):
+            dataset = datasets_dirction_dict[dataset_name](data_cfgs, is_tra_val_te)
         else:
             raise NotImplementedError(
                 f"Error the dataset {str(dataset_name)} was not found in the dataset dict. Please add it."
@@ -542,176 +542,6 @@ class DeepHydro(DeepHydroInterface):
         return sampler_class(train_dataset, **sampler_hyperparam)
 
 
-class FedLearnHydro(DeepHydro):
-    """Federated Learning Hydrological DL model"""
-
-    def __init__(self, cfgs: Dict):
-        super().__init__(cfgs)
-        # a user group which is a dict where the keys are the user index
-        # and the values are the corresponding data for each of those users
-        train_dataset = self.traindataset
-        fl_hyperparam = self.cfgs["model_cfgs"]["fl_hyperparam"]
-        # sample training data amongst users
-        if fl_hyperparam["fl_sample"] == "basin":
-            # Sample a basin for a user
-            user_groups = fl_sample_basin(train_dataset)
-        elif fl_hyperparam["fl_sample"] == "region":
-            # Sample a region for a user
-            user_groups = fl_sample_region(train_dataset)
-        else:
-            raise NotImplementedError()
-        self.user_groups = user_groups
-
-    @property
-    def num_users(self):
-        """number of users in federated learning"""
-        return len(self.user_groups)
-
-    def model_train(self) -> None:
-        # BUILD MODEL
-        global_model = self.model
-
-        # copy weights
-        global_weights = global_model.state_dict()
-
-        # Training
-        train_loss, train_accuracy = [], []
-        print_every = 2
-
-        training_cfgs = self.cfgs["training_cfgs"]
-        model_cfgs = self.cfgs["model_cfgs"]
-        max_epochs = training_cfgs["epochs"]
-        start_epoch = training_cfgs["start_epoch"]
-        fl_hyperparam = model_cfgs["fl_hyperparam"]
-        # total rounds in a FL system is max_epochs
-        for epoch in tqdm(range(start_epoch, max_epochs + 1)):
-            local_weights, local_losses = [], []
-            print(f"\n | Global Training Round : {epoch} |\n")
-
-            global_model.train()
-            m = max(int(fl_hyperparam["fl_frac"] * self.num_users), 1)
-            # randomly select m users, they will be the clients in this round
-            idxs_users = np.random.choice(range(self.num_users), m, replace=False)
-
-            for idx in idxs_users:
-                # each user will be used to train the model locally
-                # user_gourps[idx] means the idx of dataset for a user
-                user_cfgs = self._get_a_user_cfgs(idx)
-                local_model = DeepHydro(
-                    user_cfgs,
-                    pre_model=copy.deepcopy(global_model),
-                )
-                w, loss = local_model.model_train()
-                local_weights.append(copy.deepcopy(w))
-                local_losses.append(copy.deepcopy(loss))
-
-            # update global weights
-            global_weights = average_weights(local_weights)
-
-            # update global weights
-            global_model.load_state_dict(global_weights)
-
-            loss_avg = sum(local_losses) / len(local_losses)
-            train_loss.append(loss_avg)
-
-            # Calculate avg training accuracy over all users at every epoch
-            list_acc = []
-            global_model.eval()
-            for c in range(self.num_users):
-                one_user_cfg = self._get_a_user_cfgs(c)
-                local_model = DeepHydro(
-                    one_user_cfg,
-                    pre_model=global_model,
-                )
-                acc, _, _ = local_model.model_evaluate()
-                list_acc.append(acc)
-            values = [list(d.values())[0][0] for d in list_acc]
-            filtered_values = [v for v in values if not np.isnan(v)]
-            train_accuracy.append(sum(filtered_values) / len(filtered_values))
-
-            # print global training loss after every 'i' rounds
-            if (epoch + 1) % print_every == 0:
-                print(f" \nAvg Training Stats after {epoch+1} global rounds:")
-                print(f"Training Loss : {np.mean(np.array(train_loss))}")
-                print("Train Accuracy: {:.2f}% \n".format(100 * train_accuracy[-1]))
-
-    def _get_a_user_cfgs(self, idx):
-        """To get a user's configs for local training"""
-        user = self.user_groups[idx]
-
-        # update data_cfgs
-        # Use defaultdict to collect dates for each basin
-        basin_dates = defaultdict(list)
-
-        for _, (basin, time) in user.items():
-            basin_dates[basin].append(time)
-
-        # Initialize a list to store distinct basins
-        basins = []
-
-        # for each basin, we can find its date range
-        date_ranges = {}
-        for basin, times in basin_dates.items():
-            basins.append(basin)
-            date_ranges[basin] = (np.min(times), np.max(times))
-        # get the longest date range
-        longest_date_range = max(date_ranges.values(), key=lambda x: x[1] - x[0])
-        # transform the date range of numpy data into string
-        longest_date_range = [
-            np.datetime_as_string(dt, unit="D") for dt in longest_date_range
-        ]
-        user_cfgs = copy.deepcopy(self.cfgs)
-        # update data_cfgs
-        update_nested_dict(
-            user_cfgs, ["data_cfgs", "t_range_train"], longest_date_range
-        )
-        # for local training in FL, we don't need a validation set
-        update_nested_dict(user_cfgs, ["data_cfgs", "t_range_valid"], None)
-        # for local training in FL, we don't need a test set, but we should set one to avoid error
-        update_nested_dict(user_cfgs, ["data_cfgs", "t_range_test"], longest_date_range)
-        update_nested_dict(user_cfgs, ["data_cfgs", "object_ids"], basins)
-
-        # update training_cfgs
-        # we also need to update some training params for local training from FL settings
-        update_nested_dict(
-            user_cfgs,
-            ["training_cfgs", "epochs"],
-            user_cfgs["model_cfgs"]["fl_hyperparam"]["fl_local_ep"],
-        )
-        update_nested_dict(
-            user_cfgs,
-            ["evaluation_cfgs", "test_epoch"],
-            user_cfgs["model_cfgs"]["fl_hyperparam"]["fl_local_ep"],
-        )
-        # don't need to save model weights for local training
-        update_nested_dict(
-            user_cfgs,
-            ["training_cfgs", "save_epoch"],
-            None,
-        )
-        # there are two settings for batch size in configs, we need to update both of them
-        update_nested_dict(
-            user_cfgs,
-            ["training_cfgs", "batch_size"],
-            user_cfgs["model_cfgs"]["fl_hyperparam"]["fl_local_bs"],
-        )
-        update_nested_dict(
-            user_cfgs,
-            ["data_cfgs", "batch_size"],
-            user_cfgs["model_cfgs"]["fl_hyperparam"]["fl_local_bs"],
-        )
-
-        # update model_cfgs finally
-        # For local model, its model_type is Normal
-        update_nested_dict(user_cfgs, ["model_cfgs", "model_type"], "Normal")
-        update_nested_dict(
-            user_cfgs,
-            ["model_cfgs", "fl_hyperparam"],
-            None,
-        )
-        return user_cfgs
-
-
 class TransLearnHydro(DeepHydro):
     def __init__(self, cfgs: Dict, pre_model=None):
         super().__init__(cfgs, pre_model)
@@ -822,120 +652,8 @@ class MultiTaskHydro(DeepHydro):
         )
 
 
-class DistributedDeepHydro(MultiTaskHydro):
-    # TODO: not finished yet
-    def __init__(self, world_size, cfgs: Dict):
-        super().__init__(cfgs, cfgs["model_cfgs"]["weight_path"])
-        self.world_size = world_size
-
-    def setup(self, rank):
-        os.environ["MASTER_ADDR"] = self.cfgs["training_cfgs"]["master_addr"]
-        os.environ["MASTER_PORT"] = self.cfgs["training_cfgs"]["port"]
-        dist.init_process_group(
-            backend="nccl", init_method="env://", world_size=self.world_size, rank=rank
-        )
-        torch.cuda.set_device(rank)
-        self.device = torch.device(rank)
-        self.rank = rank
-
-    def cleanup(self):
-        dist.destroy_process_group()
-
-    def load_model(self, mode="train"):
-        if mode == "infer":
-            if self.weight_path is None:
-                # for continue training
-                self.weight_path = self._get_trained_model()
-        elif mode != "train":
-            raise ValueError("Invalid mode; must be 'train' or 'infer'")
-        model_cfgs = self.cfgs["model_cfgs"]
-        model_name = model_cfgs["model_name"]
-        if model_name not in pytorch_model_dict:
-            raise NotImplementedError(
-                f"Error the model {model_name} was not found in the model dict. Please add it."
-            )
-        if self.pre_model is not None:
-            return self._load_pretrain_model()
-        elif self.weight_path is not None:
-            # load model from pth file (saved weights and biases)
-            return self._load_model_from_pth()
-        else:
-            return pytorch_model_dict[model_name](**model_cfgs["model_hyperparam"])
-
-    def model_train(self):
-        model = self.load_model().to(self.device)
-        self.model = DDP(model, device_ids=[self.rank])
-        training_cfgs = self.cfgs["training_cfgs"]
-        # The file path to load model weights from; defaults to "model_save"
-        model_filepath = self.cfgs["data_cfgs"]["test_path"]
-        data_cfgs = self.cfgs["data_cfgs"]
-        es = None
-        if training_cfgs["early_stopping"]:
-            es = EarlyStopper(training_cfgs["patience"])
-        criterion = self._get_loss_func(training_cfgs)
-        opt = self._get_optimizer(training_cfgs)
-        scheduler = self._get_scheduler(training_cfgs, opt)
-        max_epochs = training_cfgs["epochs"]
-        start_epoch = training_cfgs["start_epoch"]
-        # use PyTorch's DataLoader to load the data into batches in each epoch
-        data_loader, validation_data_loader = self._get_dataloader(
-            training_cfgs, data_cfgs
-        )
-        logger = TrainLogger(model_filepath, self.cfgs, opt)
-        for epoch in range(start_epoch, max_epochs + 1):
-            data_loader.sampler.set_epoch(epoch)
-            with logger.log_epoch_train(epoch) as train_logs:
-                total_loss, n_iter_ep = torch_single_train(
-                    self.model,
-                    opt,
-                    criterion,
-                    data_loader,
-                    device=self.device,
-                    which_first_tensor=training_cfgs["which_first_tensor"],
-                )
-                train_logs["train_loss"] = total_loss
-                train_logs["model"] = self.model
-
-            valid_loss = None
-            valid_metrics = None
-            if data_cfgs["t_range_valid"] is not None:
-                with logger.log_epoch_valid(epoch) as valid_logs:
-                    valid_loss, valid_metrics = self._1epoch_valid(
-                        training_cfgs, criterion, validation_data_loader, valid_logs
-                    )
-
-            self._scheduler_step(training_cfgs, scheduler, valid_loss)
-            logger.save_session_param(
-                epoch, total_loss, n_iter_ep, valid_loss, valid_metrics
-            )
-            logger.save_model_and_params(self.model, epoch, self.cfgs)
-            if es and not es.check_loss(
-                self.model,
-                valid_loss,
-                self.cfgs["data_cfgs"]["test_path"],
-            ):
-                print("Stopping model now")
-                break
-        # if self.rank == 0:
-        # logging.log(1, f"Training complete in: {time.time() - start_time:.2f} seconds"
-
-    def run(self):
-        self.setup(self.rank)
-        self.model_train()
-        self.model_evaluate()
-        self.cleanup()
-
-
-def train_worker(rank, world_size, cfgs):
-    trainer = DistributedDeepHydro(world_size, cfgs)
-    trainer.rank = rank
-    trainer.run()
-
-
 model_type_dict = {
     "Normal": DeepHydro,
-    "FedLearn": FedLearnHydro,
     "TransLearn": TransLearnHydro,
     "MTL": MultiTaskHydro,
-    "DDP_MTL": DistributedDeepHydro,
 }

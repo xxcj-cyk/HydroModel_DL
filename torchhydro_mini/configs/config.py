@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from hydroutils import hydro_file
+from hydroutils_mini import hydro_file
 
 DAYMET_NAME = "daymet"
 SSM_SMAP_NAME = "ssm"
@@ -26,57 +26,7 @@ DATE_FORMATS = ["%Y-%m-%d-%H", "%Y-%m-%d"]  # 带小时的日期格式  # 不带
 
 
 def default_config_file():
-    """
-    Default config file for all models/data/training parameters in this repo
-
-    Returns
-    -------
-    dict
-        configurations
-    """
-
     return {
-        "model_cfgs": {
-            # model_type including normal deep learning (Normal), federated learning (FedLearn), transfer learing (TransLearn), multi-task learning (MTL), etc.
-            "model_type": "Normal",
-            # supported models can be seen in hydroDL/model_dict_function.py
-            "model_name": "LSTM",
-            # the details of model parameters for the "model_name" model
-            "model_hyperparam": {
-                # <- warmup -><- forecast_history -><- forecast_length ->
-                "forecast_history": 30,
-                "forecast_length": 30,
-                # the size of input (feature number)
-                "input_size": 24,
-                # the length of output time-sequence (feature number)
-                "output_size": 1,
-                "hidden_size": 20,
-                "num_layers": 1,
-                "bias": True,
-                "batch_size": 100,
-                "dropout": 0.2,
-            },
-            "weight_path": None,
-            "continue_train": True,
-            # federated learning parameters
-            "fl_hyperparam": {
-                # sampling for federated learning
-                "fl_sample": "basin",
-                # number of users for federated learning
-                # TODO: we don't use this parameter now, but we may use it in the future
-                "fl_num_users": 10,
-                # the number of local epochs
-                "fl_local_ep": 5,
-                # local batch size
-                "fl_local_bs": 6,
-                # the fraction of clients
-                "fl_frac": 0.1,
-            },
-            "tl_hyperparam": {
-                # part of transfer learning in a model: a list of layers' names, such as ["lstm"]
-                "tl_part": None,
-            },
-        },
         "data_cfgs": {
             "source_cfgs": {
                 # the name of data source, such as CAMELS
@@ -202,12 +152,58 @@ def default_config_file():
             # sampler for pytorch dataloader, here we mainly use it for Kuai Fang's sampler in all his DL papers
             "sampler": None,
         },
+        "model_cfgs": {
+            # model_type including normal deep learning (Normal), federated learning (FedLearn), transfer learing (TransLearn), multi-task learning (MTL), etc.
+            "model_type": "Normal",
+            # supported models can be seen in hydroDL/model_dict_function.py
+            "model_name": "LSTM",
+            # the details of model parameters for the "model_name" model
+            "model_hyperparam": {
+                # <- warmup -><- forecast_history -><- forecast_length ->
+                "forecast_history": 30,
+                "forecast_length": 30,
+                # the size of input (feature number)
+                "input_size": 24,
+                # the length of output time-sequence (feature number)
+                "output_size": 1,
+                "hidden_size": 20,
+                "num_layers": 1,
+                "bias": True,
+                "batch_size": 100,
+                "dropout": 0.2,
+            },
+            
+            "weight_path": None,
+            "continue_train": True,
+
+            # federated learning parameters
+            "fl_hyperparam": {
+                # sampling for federated learning
+                "fl_sample": "basin",
+                # number of users for federated learning
+                # TODO: we don't use this parameter now, but we may use it in the future
+                "fl_num_users": 10,
+                # the number of local epochs
+                "fl_local_ep": 5,
+                # local batch size
+                "fl_local_bs": 6,
+                # the fraction of clients
+                "fl_frac": 0.1,
+            },
+            "tl_hyperparam": {
+                # part of transfer learning in a model: a list of layers' names, such as ["lstm"]
+                "tl_part": None,
+            },
+        },
+        
         "training_cfgs": {
             "random_seed": 1111,
+            "train_mode": True,
+
             "master_addr": "localhost",
             "port": "12335",
             # if train_mode is False, don't train and evaluate
-            "train_mode": True,
+            
             "criterion": "RMSE",
             "criterion_params": None,
             # "weight_decay": None, a regularization term in loss func
@@ -299,7 +295,10 @@ def cmd(
     fl_local_ep=None,
     fl_local_bs=None,
     fl_frac=None,
+
     rs=None,
+    train_mode=None,
+
     master_addr=None,
     port=None,
     ctx=None,
@@ -315,14 +314,15 @@ def cmd(
     warmup_length=0,
     forecast_history=None,
     forecast_length=None,
-    train_mode=None,
     train_epoch=None,
     save_epoch=None,
     save_iter=None,
     model_type=None,
     model_name=None,
+
     weight_path=None,
     continue_train=None,
+
     var_c=None,
     c_rm_nan=1,
     var_t=None,
@@ -457,6 +457,7 @@ def cmd(
         default=ctx,
         nargs="+",
     )
+
     # There is something wrong with "bool", so I used 1 as True, 0 as False
     parser.add_argument(
         "--train_mode",
@@ -465,6 +466,7 @@ def cmd(
         default=train_mode,
         type=int,
     )
+    
     parser.add_argument(
         "--train_epoch",
         dest="train_epoch",
@@ -883,6 +885,7 @@ def update_cfg(cfg_file, new_args):
         cfg_file["data_cfgs"]["dataset"] = new_args.dataset
     if new_args.sampler is not None:
         cfg_file["data_cfgs"]["sampler"] = new_args.sampler
+
     if new_args.fl_sample is not None:
         if new_args.fl_sample not in ["basin", "region"]:
             # basin means each client is a basin
