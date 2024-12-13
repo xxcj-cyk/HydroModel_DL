@@ -1,38 +1,28 @@
-import copy
-import os
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from functools import reduce
 from typing import Dict, Tuple
 
 import numpy as np
 import xarray as xr
 import torch
-import torch.distributed as dist
 import torch.nn as nn
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from torchhydro.configs.config import update_nested_dict
-from torchhydro.datasets.data_dict import datasets_dirction_dict
-from torchhydro.datasets.data_sets import BaseDataset
-from torchhydro.datasets.sampler import (
-    fl_sample_basin,
-    fl_sample_region,
+from datasets.data_dict import datasets_dirction_dict
+from datasets.data_sets import BaseDataset
+from datasets.sampler import (
     data_sampler_dict,
 )
-from torchhydro.models.model_dict_function import (
-    pytorch_criterion_dict,
+from models.model_dict import (
     pytorch_model_dict,
     pytorch_opt_dict,
+    pytorch_criterion_dict,
 )
-from torchhydro.models.model_utils import get_the_device
-from torchhydro.trainers.train_logger import TrainLogger
-from torchhydro.trainers.train_utils import (
+from hydroutils_mini.hydro_device import get_the_device
+from trainers.trainlogger import TrainLogger
+from trainers.train_utils import (
     EarlyStopper,
-    average_weights,
     denormalize4eval,
     evaluate_validation,
     compute_validation,

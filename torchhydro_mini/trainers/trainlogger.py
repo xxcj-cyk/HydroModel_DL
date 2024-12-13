@@ -3,12 +3,12 @@ from datetime import datetime
 import json
 import os
 import time
-from hydroutils import hydro_file
+from hydroutils_mini import hydro_format
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from torchhydro.trainers.train_utils import get_lastest_logger_file_in_a_dir
+from trainers.train_utils import get_lastest_logger_file_in_a_dir
 
 
 def save_model(model, model_file, gpu_num=1):
@@ -24,7 +24,7 @@ def save_model(model, model_file, gpu_num=1):
 def save_model_params_log(params, params_log_path):
     time_stamp = datetime.now().strftime("%d_%B_%Y%I_%M%p")
     params_log_file = os.path.join(params_log_path, f"{time_stamp}.json")
-    hydro_file.serialize_json(params, params_log_file)
+    hydro_format.serialize_json(params, params_log_file)
 
 
 class TrainLogger:

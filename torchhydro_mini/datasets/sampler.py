@@ -137,6 +137,4 @@ class BasinBatchSampler(Sampler[int]):
 data_sampler_dict = {
     "KuaiSampler": KuaiSampler,
     "BasinBatchSampler": BasinBatchSampler,
-    # TODO: DistributedSampler need more test
-    # "DistSampler": DistributedSampler,
 }

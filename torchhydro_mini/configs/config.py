@@ -48,13 +48,13 @@ def default_config_file():
             # the min time interval of the input data
             "min_time_interval": 1,
             # modeled objects
-            "object_ids": "ALL",
+            "object_ids": "ALL",  # like ['changdian_61561']
             # modeling time range
             "t_range_train": ["1992-01-01", "1993-01-01"],
             "t_range_valid": None,
             "t_range_test": ["1993-01-01", "1994-01-01"],
             # the output
-            "target_cols": [Q_CAMELS_US_NAME],
+            "target_cols": "streamflow",
             "target_rm_nan": True,
             # only for cases in which target data will be used as input:
             # data assimilation -- use streamflow from period 0 to t-1 (TODO: not included now)
@@ -172,10 +172,8 @@ def default_config_file():
                 "batch_size": 100,
                 "dropout": 0.2,
             },
-            
             "weight_path": None,
             "continue_train": True,
-
             # federated learning parameters
             "fl_hyperparam": {
                 # sampling for federated learning
@@ -195,15 +193,12 @@ def default_config_file():
                 "tl_part": None,
             },
         },
-        
         "training_cfgs": {
             "random_seed": 1111,
             "train_mode": True,
-
             "master_addr": "localhost",
             "port": "12335",
             # if train_mode is False, don't train and evaluate
-            
             "criterion": "RMSE",
             "criterion_params": None,
             # "weight_decay": None, a regularization term in loss func
@@ -261,17 +256,22 @@ def default_config_file():
         # For evaluation
         "evaluation_cfgs": {
             # there are some different loading way of trained model weights
-            # 'epoch' means we load the weights of the specified epoch;
-            # 'best' means we load the best weights during training especially for early stopping
-            # 'latest' means we load the latest weights during training
-            # 'pth' means we load the weights from the specified path
-            "model_loader": {"load_way": "specified", "test_epoch": 20},
-            # "model_loader": {"load_way": "best"},
+            # 'epoch': load the weights of the specified epoch;
+            # 'best': load the best weights during training especially for early stopping
+            # 'latest': load the latest weights during training
+            # 'pth': load the weights from the specified path
+            # "model_loader": {"load_way": "specified", "test_epoch": 20},
+            "model_loader": {"load_way": "best"},
             # "model_loader": {"load_way": "latest"},
             # "model_loader": {"load_way": "pth", "pth": "path/to/weights"},
-            "metrics": ["NSE", "RMSE", "R2", "KGE", "FHV", "FLV"],
+            "metrics": ["NSE", "KGE", "RMSE", "Corr", "FHV", "FLV"],
+            # fill_nan: "no" means ignoring the NaN value;
+            #           "sum" means calculate the sum of the following values in the NaN locations.
+            #           For example, observations are [1, nan, nan, 2], and predictions are [0.3, 0.3, 0.3, 1.5].
+            #           Then, "no" means [1, 2] v.s. [0.3, 1.5] while "sum" means [1, 2] v.s. [0.3 + 0.3 + 0.3, 1.5].
+            #           If it is a str, then all target vars use same fill_nan method;
+            #           elif it is a list, each for a var
             "fill_nan": "no",
-            "explainer": None,
             # rolling means testdataloader will sample data with overlap time
             # rolling is False meaning each time has only one output for one basin one variable
             # rolling is True and the time_window must be prec_window+horizon now!
@@ -295,10 +295,8 @@ def cmd(
     fl_local_ep=None,
     fl_local_bs=None,
     fl_frac=None,
-
     rs=None,
     train_mode=None,
-
     master_addr=None,
     port=None,
     ctx=None,
@@ -319,10 +317,8 @@ def cmd(
     save_iter=None,
     model_type=None,
     model_name=None,
-
     weight_path=None,
     continue_train=None,
-
     var_c=None,
     c_rm_nan=1,
     var_t=None,
@@ -466,7 +462,7 @@ def cmd(
         default=train_mode,
         type=int,
     )
-    
+
     parser.add_argument(
         "--train_epoch",
         dest="train_epoch",
