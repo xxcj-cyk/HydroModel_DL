@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
-from configs.model_config import MODEL_PARAM_DICT
-from models.lstm import StandardLSTM
-from models.kernel_conv import uh_conv, uh_gamma
+from torchhydro_mini.configs.model_config import MODEL_PARAM_DICT
+from torchhydro_mini.models.lstm import SimpleLSTM
+from torchhydro_mini.models.kernel_conv import uh_conv, uh_gamma
 
 
 class Hbv4Dpl(torch.nn.Module):
@@ -218,17 +218,17 @@ class Hbv4Dpl(torch.nn.Module):
 class DplLstmHbv(nn.Module):
     def __init__(
         self,
-        n_input_features,
-        n_output_features,
-        n_hidden_states,
+        input_size,
+        output_size,
+        hidden_size,
         kernel_size,
         warmup_length,
         param_limit_func="sigmoid",
         param_test_way="final",
     ):
         super(DplLstmHbv, self).__init__()
-        self.dl_model = StandardLSTM(
-            n_input_features, n_output_features, n_hidden_states
+        self.dl_model = SimpleLSTM(
+            input_size, output_size, hidden_size
         )
         self.pb_model = Hbv4Dpl(warmup_length, kernel_size)
         self.param_func = param_limit_func

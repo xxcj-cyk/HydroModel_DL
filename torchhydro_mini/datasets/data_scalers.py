@@ -25,14 +25,14 @@ from sklearn.preprocessing import (
     MaxAbsScaler,
 )
 
-from hydroutils.hydro_stat import (
+from hydroutils_mini.hydro_statistic import (
     cal_stat_prcp_norm,
     cal_stat_gamma,
     cal_stat,
     cal_4_stat_inds,
 )
 
-from torchhydro.datasets.data_utils import (
+from hydroutils_mini.hydro_data import (
     _trans_norm,
     _prcp_norm,
     wrap_t_s_dict,
@@ -297,7 +297,7 @@ class DapengScaler(object):
         np.ndarray
             mean_prcp with the same unit as streamflow
         """
-        final_unit = self.data_target.attrs["units"]["streamflow"]
+        final_unit = self.data_target.attrs["units"]["streamflow_mm"]
         mean_prcp = self.data_source.read_mean_prcp(
             self.t_s_dict["sites_id"], unit=final_unit
         )

@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from hydroutils_mini import hydro_file
+from hydroutils_mini import hydro_dirction
 
 DAYMET_NAME = "daymet"
 SSM_SMAP_NAME = "ssm"
@@ -1085,4 +1085,4 @@ def get_config_file(cfg_dir):
             json_files_ctime.append(os.path.getctime(os.path.join(cfg_dir, file)))
     sort_idx = np.argsort(json_files_ctime)
     cfg_file = json_files_lst[sort_idx[-1]]
-    return hydro_file.unserialize_json(cfg_file)
+    return hydro_dirction.unserialize_json(cfg_file)

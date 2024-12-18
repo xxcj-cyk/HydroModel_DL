@@ -9,19 +9,19 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
 
-from datasets.data_dict import datasets_dirction_dict
-from datasets.data_sets import BaseDataset
-from datasets.sampler import (
+from torchhydro_mini.datasets.data_dict import datasets_read_dict
+from torchhydro_mini.datasets.data_sets import BaseDataset
+from torchhydro_mini.datasets.sampler import (
     data_sampler_dict,
 )
-from models.model_dict import (
+from torchhydro_mini.models.model_dict import (
     pytorch_model_dict,
     pytorch_opt_dict,
     pytorch_criterion_dict,
 )
 from hydroutils_mini.hydro_device import get_the_device
-from trainers.trainlogger import TrainLogger
-from trainers.train_utils import (
+from torchhydro_mini.trainers.trainlogger import TrainLogger
+from torchhydro_mini.trainers.train_utils import (
     EarlyStopper,
     denormalize4eval,
     evaluate_validation,
@@ -200,8 +200,8 @@ class DeepHydro(DeepHydroInterface):
         data_cfgs = self.cfgs["data_cfgs"]
         dataset_name = data_cfgs["dataset"]
 
-        if dataset_name in list(datasets_dirction_dict.keys()):
-            dataset = datasets_dirction_dict[dataset_name](data_cfgs, is_tra_val_te)
+        if dataset_name in list(datasets_read_dict.keys()):
+            dataset = datasets_read_dict[dataset_name](data_cfgs, is_tra_val_te)
         else:
             raise NotImplementedError(
                 f"Error the dataset {str(dataset_name)} was not found in the dataset dict. Please add it."

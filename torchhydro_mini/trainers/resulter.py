@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import fnmatch
-from trainers.trainlogger import save_model_params_log
+from torchhydro_mini.trainers.trainlogger import save_model_params_log
 from hydroutils_mini.hydro_statistic import calculate_and_record_metrics
 
 

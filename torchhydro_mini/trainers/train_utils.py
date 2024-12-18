@@ -14,14 +14,13 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from hydroutils.hydro_stat import stat_error
-from hydroutils.hydro_file import (
+from hydroutils_mini.hydro_statistic import statistic_nd_error
+from hydroutils_mini.hydro_model import (
     get_lastest_file_in_a_dir,
-    unserialize_json,
     get_latest_file_in_a_lst,
 )
-
-from torchhydro.models.crits import GaussianLoss
+from hydroutils_mini.hydro_format import unserialize_json
+from torchhydro_mini.models.crits import GaussianLoss
 
 
 def model_infer(seq_first, device, model, xs, ys):
@@ -194,7 +193,7 @@ def calculate_and_record_metrics(
     obs, pred, evaluation_metrics, target_col, fill_nan, eval_log
 ):
     fill_nan_value = fill_nan
-    inds = stat_error(obs, pred, fill_nan_value)
+    inds = statistic_nd_error(obs, pred, fill_nan_value)
 
     for evaluation_metric in evaluation_metrics:
         eval_log[f"{evaluation_metric} of {target_col}"] = inds[
@@ -603,21 +602,6 @@ def get_lastest_logger_file_in_a_dir(dir_path):
         if re.match(pattern, file)
     ]
     return get_latest_file_in_a_lst(pth_files_lst)
-
-
-def cellstates_when_inference(seq_first, data_cfgs, pred):
-    """get cell states when inference"""
-    cs_out = (
-        cs_cat_lst.detach().cpu().numpy().swapaxes(0, 1)
-        if seq_first
-        else cs_cat_lst.detach().cpu().numpy()
-    )
-    cs_out_lst = [cs_out]
-    cell_state = reduce(lambda a, b: np.vstack((a, b)), cs_out_lst)
-    np.save(os.path.join(data_cfgs["test_path"], "cell_states.npy"), cell_state)
-    # model.zero_grad()
-    torch.cuda.empty_cache()
-    return pred, cell_state
 
 
 def read_torchhydro_log_json_file(cfg_dir):

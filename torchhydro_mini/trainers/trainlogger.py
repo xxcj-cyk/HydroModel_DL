@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from trainers.train_utils import get_lastest_logger_file_in_a_dir
+from torchhydro_mini.trainers.train_utils import get_lastest_logger_file_in_a_dir
 
 
 def save_model(model, model_file, gpu_num=1):

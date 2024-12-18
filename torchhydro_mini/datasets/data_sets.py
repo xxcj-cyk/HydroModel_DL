@@ -5,21 +5,19 @@ import torch
 import xarray as xr
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from hydrodatasource.utils.utils import streamflow_unit_conv
+from hydroutils_mini.hydro_unit import streamflow_unit_conv
+from torchhydro_mini.configs.config import DATE_FORMATS
+from torchhydro_mini.datasets.data_scalers import ScalerHub
+from hydrodataset_mini.data_reader import ReadCamelsUS
 
-from torchhydro.configs.config import DATE_FORMATS
-from torchhydro.datasets.data_scalers import ScalerHub
-from torchhydro.datasets.data_sources import data_sources_dict
-
-from torchhydro.datasets.data_utils import (
+from hydroutils_mini.hydro_data import (
     warn_if_nan,
     wrap_t_s_dict,
 )
-from hydrodatasource.reader.data_source import SelfMadeHydroDataset
 
 LOGGER = logging.getLogger(__name__)
 
@@ -102,10 +100,10 @@ class BaseDataset(Dataset):
 
     @property
     def data_source(self):
-        source_name = self.data_cfgs["source_cfgs"]["source_name"]
-        source_path = self.data_cfgs["source_cfgs"]["source_path"]
+        # source_name = self.data_cfgs["source_cfgs"]["source_name"]
+        # source_path = self.data_cfgs["source_cfgs"]["source_path"]
         other_settings = self.data_cfgs["source_cfgs"].get("other_settings", {})
-        return data_sources_dict[source_name](source_path, **other_settings)
+        return ReadCamelsUS(**other_settings)
 
     @property
     def streamflow_name(self):
@@ -434,21 +432,6 @@ class BaseDataset(Dataset):
         self.num_samples = len(self.lookup_table)
 
 
-class BasinSingleFlowDataset(BaseDataset):
-    """one time length output for each grid in a batch"""
-
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        super(BasinSingleFlowDataset, self).__init__(data_cfgs, is_tra_val_te)
-
-    def __getitem__(self, index):
-        xc, ys = super(BasinSingleFlowDataset, self).__getitem__(index)
-        y = ys[-1, :]
-        return xc, y
-
-    def __len__(self):
-        return self.num_samples
-
-
 class DplDataset(BaseDataset):
     """pytorch dataset for Differential parameter learning"""
 
@@ -550,215 +533,7 @@ class DplDataset(BaseDataset):
         return self.num_samples if self.train_mode else len(self.t_s_dict["sites_id"])
 
 
-class FlexibleDataset(BaseDataset):
-    """A dataset whose datasources are from multiple sources according to the configuration"""
-
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        super(FlexibleDataset, self).__init__(data_cfgs, is_tra_val_te)
-
-    @property
-    def data_source(self):
-        source_cfgs = self.data_cfgs["source_cfgs"]
-        return {
-            name: data_sources_dict[name](path)
-            for name, path in zip(
-                source_cfgs["source_names"], source_cfgs["source_paths"]
-            )
-        }
-
-    def _read_xyc(self):
-        var_to_source_map = self.data_cfgs["var_to_source_map"]
-        x_datasets, y_datasets, c_datasets = [], [], []
-        gage_ids = self.t_s_dict["sites_id"]
-        t_range = self.t_s_dict["t_final_range"]
-
-        for var_name in var_to_source_map:
-            source_name = var_to_source_map[var_name]
-            data_source_ = self.data_source[source_name]
-            if var_name in self.data_cfgs["relevant_cols"]:
-                x_datasets.append(
-                    data_source_.read_ts_xrdataset(gage_ids, t_range, [var_name])
-                )
-            elif var_name in self.data_cfgs["target_cols"]:
-                y_datasets.append(
-                    data_source_.read_ts_xrdataset(gage_ids, t_range, [var_name])
-                )
-            elif var_name in self.data_cfgs["constant_cols"]:
-                c_datasets.append(
-                    data_source_.read_attr_xrdataset(gage_ids, [var_name])
-                )
-
-        # 合并所有x, y, c类型的数据集
-        x = xr.merge(x_datasets) if x_datasets else xr.Dataset()
-        y = xr.merge(y_datasets) if y_datasets else xr.Dataset()
-        c = xr.merge(c_datasets) if c_datasets else xr.Dataset()
-        if "streamflow" in y:
-            area = data_source_.camels.read_area(self.t_s_dict["sites_id"])
-            y.update(streamflow_unit_conv(y[["streamflow"]], area))
-        self.x_origin, self.y_origin, self.c_origin = self._to_dataarray_with_unit(
-            x, y, c
-        )
-
-    def _normalize(self):
-        var_to_source_map = self.data_cfgs["var_to_source_map"]
-        for var_name in var_to_source_map:
-            source_name = var_to_source_map[var_name]
-            data_source_ = self.data_source[source_name]
-            break
-        # TODO: only support CAMELS for now
-        scaler_hub = ScalerHub(
-            self.y_origin,
-            self.x_origin,
-            self.c_origin,
-            data_cfgs=self.data_cfgs,
-            is_tra_val_te=self.is_tra_val_te,
-            data_source=data_source_.camels,
-        )
-        self.target_scaler = scaler_hub.target_scaler
-        return scaler_hub.x, scaler_hub.y, scaler_hub.c
-
-
-class Seq2SeqDataset(BaseDataset):
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        super(Seq2SeqDataset, self).__init__(data_cfgs, is_tra_val_te)
-
-    def _read_xyc(self):
-        """
-        NOTE: the lookup table is same as BaseDataset,
-        but the data retrieved from datasource should has one more period,
-        because we include the concepts of start and end moment of the period
-
-        Returns
-        -------
-        tuple[xr.Dataset, xr.Dataset, xr.Dataset]
-            x, y, c data
-        """
-        start_date = self.t_s_dict["t_final_range"][0]
-        end_date = self.t_s_dict["t_final_range"][1]
-        interval = self.data_cfgs["min_time_interval"]
-        time_unit = self.data_cfgs["min_time_unit"]
-
-        # Determine the date format
-        date_format = detect_date_format(end_date)
-
-        # Adjust the end date based on the time unit
-        end_date_dt = datetime.strptime(end_date, date_format)
-        if time_unit == "h":
-            adjusted_end_date = (end_date_dt + timedelta(hours=interval)).strftime(
-                date_format
-            )
-        elif time_unit == "D":
-            adjusted_end_date = (end_date_dt + timedelta(days=interval)).strftime(
-                date_format
-            )
-        else:
-            raise ValueError(f"Unsupported time unit: {time_unit}")
-        self._read_xyc_specified_time(start_date, adjusted_end_date)
-
-    def _normalize(self):
-        x, y, c = super()._normalize()
-        # TODO: this work for minio? maybe better to move to basedataset
-        return x.compute(), y.compute(), c.compute()
-
-    def __len__(self):
-        return self.num_samples
-
-    def __getitem__(self, item: int):
-        basin, time = self.lookup_table[item]
-        rho = self.rho
-        horizon = self.horizon
-        prec = self.data_cfgs.get("prec_window", 0)
-        # p cover all encoder-decoder periods; +1 means the period while +0 means start of the current period
-        p = self.x[basin, time + 1 : time + rho + horizon + 1, 0].reshape(-1, 1)
-        # s only cover encoder periods
-        s = self.x[basin, time : time + rho, 1:]
-        x = np.concatenate((p[:rho], s), axis=1)
-
-        if self.c is None or self.c.shape[-1] == 0:
-            xc = x
-        else:
-            c = self.c[basin, :]
-            c = np.tile(c, (rho + horizon, 1))
-            xc = np.concatenate((x, c[:rho]), axis=1)
-        # xh cover decoder periods
-        try:
-            xh = np.concatenate((p[rho:], c[rho:]), axis=1)
-        except ValueError as e:
-            print(f"Error in np.concatenate: {e}")
-            print(f"p[rho:].shape: {p[rho:].shape}, c[rho:].shape: {c[rho:].shape}")
-            raise
-        # y cover specified encoder size (prec_window) and all decoder periods
-        y = self.y[basin, time + rho - prec + 1 : time + rho + horizon + 1, :]
-
-        if self.is_tra_val_te == "train":
-            return [
-                torch.from_numpy(xc).float(),
-                torch.from_numpy(xh).float(),
-                torch.from_numpy(y).float(),
-            ], torch.from_numpy(y).float()
-        return [
-            torch.from_numpy(xc).float(),
-            torch.from_numpy(xh).float(),
-        ], torch.from_numpy(y).float()
-
-class SeqForecastDataset(Seq2SeqDataset):
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        super(SeqForecastDataset, self).__init__(data_cfgs, is_tra_val_te)
-
-    def __getitem__(self, item: int):
-        basin, time = self.lookup_table[item]
-        rho = self.rho # forecast history
-        horizon = self.horizon # forecast length
-        # p cover all encoder-decoder periods; +1 means the period while +0 means start of the current period
-        p = self.x[basin, time + 1 : time + rho + horizon + 1, 0].reshape(-1, 1)
-        # se only cover encoder periods
-        se = self.x[basin, time : time + rho, 1:]
-        # se only cover decoder periods
-        sd = self.x[basin, time + rho : time + rho + horizon, 1:]
-        # encoder dynamic features
-        xe = np.concatenate((p[:rho], se), axis=1)
-        # encoder static features
-        if self.c is None or self.c.shape[-1] == 0:
-            xec = xe
-        else:
-            c = self.c[basin, :]
-            c = np.tile(c, (rho + horizon, 1))
-            xec = c[:rho]
-        # xh cover decoder periods
-        xd = np.concatenate((p[rho:], sd), axis=1)
-        # decoder static features
-        xdc = c[rho:]
-        # y cover specified all decoder periods
-        y = self.y[basin, time + rho + 1 : time + rho + horizon + 1, :]
-
-        return [
-            torch.from_numpy(xe).float(),
-            torch.from_numpy(xec).float(),
-            torch.from_numpy(xd).float(),
-            torch.from_numpy(xdc).float(),
-        ], torch.from_numpy(y).float()
-
-class TransformerDataset(Seq2SeqDataset):
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        super(TransformerDataset, self).__init__(data_cfgs, is_tra_val_te)
-
-    def __getitem__(self, item: int):
-        basin, idx = self.lookup_table[item]
-        rho = self.rho
-        horizon = self.horizon
-
-        p = self.x[basin, idx + 1 : idx + rho + horizon + 1, 0]
-        s = self.x[basin, idx : idx + rho, 1]
-        x = np.stack((p[:rho], s), axis=1)
-
-        c = self.c[basin, :]
-        c = np.tile(c, (rho + horizon, 1))
-        x = np.concatenate((x, c[:rho]), axis=1)
-
-        x_h = np.concatenate((p[rho:].reshape(-1, 1), c[rho:]), axis=1)
-        y = self.y[basin, idx + rho + 1 : idx + rho + horizon + 1, :]
-
-        return [
-            torch.from_numpy(x).float(),
-            torch.from_numpy(x_h).float(),
-        ], torch.from_numpy(y).float()
+data_sources_dict = {
+    "camels_us": ReadCamelsUS,
+    # "selfmadehydrodataset": SelfMadeHydroDataset,
+} # 读取方法

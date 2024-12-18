@@ -1,8 +1,22 @@
 from typing import Union
 import torch
-from torch import distributions as tdist, Tensor
-from torchhydro.models.model_utils import get_the_device
+from torch import distributions as Tensor
+from hydroutils_mini.hydro_device import get_the_device
+from torch import distributions as tdist
 
+class GaussianLoss(torch.nn.Module):
+    def __init__(self, mu=0, sigma=0):
+        """Compute the negative log likelihood of Gaussian Distribution
+        From https://arxiv.org/abs/1907.00235
+        """
+        super(GaussianLoss, self).__init__()
+        self.mu = mu
+        self.sigma = sigma
+
+    def forward(self, x: torch.Tensor):
+        loss = -tdist.Normal(self.mu, self.sigma).log_prob(x)
+        return torch.sum(loss) / (loss.size(0) * loss.size(1))
+    
 
 def deal_gap_data(output, target, data_gap, device):
     """

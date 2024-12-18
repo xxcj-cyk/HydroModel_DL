@@ -1,7 +1,7 @@
-from models.lstm import SimpleLSTM, StandardLSTM
-from models.dpl4hbv import DplLstmHbv
 from torch.optim import Adam
-from models.crits import (
+from torchhydro_mini.models.lstm import SimpleLSTM, StandardLSTM
+from torchhydro_mini.models.dpl4hbv import DplLstmHbv
+from torchhydro_mini.models.crits import (
     RMSELoss,
     RmseLoss,
     MultiOutLoss,
