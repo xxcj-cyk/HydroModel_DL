@@ -186,7 +186,7 @@ class EarlyStopper(object):
         return True
 
     def save_model_checkpoint(self, model, save_dir):
-        torch.save(model.state_dict(), os.path.join(save_dir, "best_model.pth"))
+        torch.save(model.state_dict(), os.path.join(save_dir, "best"))
 
 
 def calculate_and_record_metrics(
@@ -552,7 +552,7 @@ def read_pth_from_model_loader(model_loader, model_pth_dir):
         test_epoch = model_loader["test_epoch"]
         weight_path = os.path.join(model_pth_dir, f"model_Ep{str(test_epoch)}.pth")
     elif model_loader["load_way"] == "best":
-        weight_path = os.path.join(model_pth_dir, "best_model.pth")
+        weight_path = os.path.join(model_pth_dir, "best")
         if not os.path.exists(weight_path):
             # read log file and find the best model
             log_json = read_torchhydro_log_json_file(model_pth_dir)
@@ -564,7 +564,7 @@ def read_pth_from_model_loader(model_loader, model_pth_dir):
             try:
                 shutil.copy2(
                     os.path.join(model_pth_dir, f"model_Ep{str(min_epoch)}.pth"),
-                    os.path.join(model_pth_dir, "best_model.pth"),
+                    os.path.join(model_pth_dir, "best"),
                 )
             except FileNotFoundError:
                 # TODO: add a recursive call to find the saved best model
