@@ -12,7 +12,7 @@ from tqdm import tqdm
 from hydroutils_mini.hydro_unit import streamflow_unit_conv
 from torchhydro_mini.configs.config import DATE_FORMATS
 from torchhydro_mini.datasets.data_scalers import ScalerHub
-from hydrodataset_mini.data_reader import ReadCamelsUS
+from hydrodataset_mini.data_reader import ReadDatasetV1
 
 from hydroutils_mini.hydro_data import (
     warn_if_nan,
@@ -103,7 +103,7 @@ class BaseDataset(Dataset):
         # source_name = self.data_cfgs["source_cfgs"]["source_name"]
         # source_path = self.data_cfgs["source_cfgs"]["source_path"]
         other_settings = self.data_cfgs["source_cfgs"].get("other_settings", {})
-        return ReadCamelsUS(**other_settings)
+        return ReadDatasetV1(**other_settings)
 
     @property
     def streamflow_name(self):
@@ -368,7 +368,6 @@ class BaseDataset(Dataset):
         data_attr_ds = self.data_source.read_attr_xrdataset(
             self.t_s_dict["sites_id"],
             self.data_cfgs["constant_cols"],
-            all_number=True,
         )
         self.x_origin, self.y_origin, self.c_origin = self._to_dataarray_with_unit(
             data_forcing_ds, data_output_ds, data_attr_ds
@@ -531,9 +530,3 @@ class DplDataset(BaseDataset):
 
     def __len__(self):
         return self.num_samples if self.train_mode else len(self.t_s_dict["sites_id"])
-
-
-data_sources_dict = {
-    "camels_us": ReadCamelsUS,
-    # "selfmadehydrodataset": SelfMadeHydroDataset,
-} # 读取方法

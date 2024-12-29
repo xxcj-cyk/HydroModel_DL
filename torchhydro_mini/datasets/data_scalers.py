@@ -297,7 +297,7 @@ class DapengScaler(object):
         np.ndarray
             mean_prcp with the same unit as streamflow
         """
-        final_unit = self.data_target.attrs["units"]["streamflow_mm"]
+        final_unit = self.data_target.attrs["units"]["streamflow"]
         mean_prcp = self.data_source.read_mean_prcp(
             self.t_s_dict["sites_id"], unit=final_unit
         )

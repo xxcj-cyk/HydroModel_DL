@@ -1,5 +1,5 @@
 from torch.optim import Adam
-from torchhydro_mini.models.lstm import SimpleLSTM, StandardLSTM
+from torchhydro_mini.models.lstm import SimpleLSTM
 from torchhydro_mini.models.dpl4hbv import DplLstmHbv
 from torchhydro_mini.models.crits import (
     RMSELoss,
@@ -9,7 +9,6 @@ from torchhydro_mini.models.crits import (
 
 pytorch_model_dict = {
     "SimpleLSTM": SimpleLSTM,
-    "StandardLSTM": StandardLSTM,
     "DplLstmHbv": DplLstmHbv,
 }
 
