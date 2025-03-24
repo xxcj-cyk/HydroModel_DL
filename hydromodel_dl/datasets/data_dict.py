@@ -1,5 +1,5 @@
-from hydrodataset_mini.settings.datasets_dir import DATASETS_DIR
-from torchhydro_mini.datasets.data_sets import (
+from hydrodata_tl.settings.datasets_dir import DATASETS_DIR
+from hydromodel_dl.datasets.data_sets import (
     BaseDataset,
     DplDataset,
 )

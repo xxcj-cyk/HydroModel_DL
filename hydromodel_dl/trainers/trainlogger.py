@@ -3,12 +3,12 @@ from datetime import datetime
 import json
 import os
 import time
-from hydroutils_mini import hydro_format
+from hydrodatautils.foundation import hydro_format
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from torchhydro_mini.trainers.train_utils import get_lastest_logger_file_in_a_dir
+from hydromodel_dl.trainers.train_utils import get_lastest_logger_file_in_a_dir
 
 
 def save_model(model, model_file, gpu_num=1):

@@ -1,8 +1,8 @@
 import os
 import pandas as pd
 import fnmatch
-from torchhydro_mini.trainers.trainlogger import save_model_params_log
-from hydroutils_mini.hydro_statistic import calculate_and_record_metrics
+from hydromodel_dl.trainers.trainlogger import save_model_params_log
+from hydrodatautils.foundation.hydro_statistic import calculate_and_record_metrics
 
 
 def set_unit_to_var(ds):

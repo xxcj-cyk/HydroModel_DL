@@ -2,8 +2,8 @@ import random
 import numpy as np
 from typing import Dict
 import torch
-from torchhydro_mini.trainers.deep_hydro import model_type_dict
-from torchhydro_mini.trainers.resulter import Resulter
+from hydromodel_dl.trainers.deep_hydro import model_type_dict
+from hydromodel_dl.trainers.resulter import Resulter
 
 
 def set_random_seed(seed):

@@ -9,19 +9,19 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
 
-from torchhydro_mini.datasets.data_dict import datasets_read_dict
-from torchhydro_mini.datasets.data_sets import BaseDataset
-from torchhydro_mini.datasets.sampler import (
+from hydromodel_dl.datasets.data_dict import datasets_read_dict
+from hydromodel_dl.datasets.data_sets import BaseDataset
+from hydromodel_dl.datasets.sampler import (
     data_sampler_dict,
 )
-from torchhydro_mini.models.model_dict import (
+from hydromodel_dl.models.model_dict import (
     pytorch_model_dict,
     pytorch_opt_dict,
     pytorch_criterion_dict,
 )
-from hydroutils_mini.hydro_device import get_the_device
-from torchhydro_mini.trainers.trainlogger import TrainLogger
-from torchhydro_mini.trainers.train_utils import (
+from hydrodatautils.foundation.hydro_device import get_the_device
+from hydromodel_dl.trainers.trainlogger import TrainLogger
+from hydromodel_dl.trainers.train_utils import (
     EarlyStopper,
     denormalize4eval,
     evaluate_validation,

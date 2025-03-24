@@ -1,20 +1,9 @@
-"""
-Author: Wenyu Ouyang
-Date: 2024-04-08 18:17:44
-LastEditTime: 2024-11-05 09:21:24
-LastEditors: Wenyu Ouyang
-Description: normalize the data
-FilePath: \torchhydro\torchhydro\datasets\data_scalers.py
-Copyright (c) 2024-2024 Wenyu Ouyang. All rights reserved.
-"""
-
 import copy
 import json
 import os
 import pickle as pkl
 import shutil
 from typing import Optional
-import pint_xarray  # noqa: F401
 import xarray as xr
 import numpy as np
 from shutil import SameFileError
@@ -25,14 +14,14 @@ from sklearn.preprocessing import (
     MaxAbsScaler,
 )
 
-from hydroutils_mini.hydro_statistic import (
+from hydrodatautils.foundation.hydro_statistic import (
     cal_stat_prcp_norm,
     cal_stat_gamma,
     cal_stat,
     cal_4_stat_inds,
 )
 
-from hydroutils_mini.hydro_data import (
+from hydrodatautils.foundation.hydro_data import (
     _trans_norm,
     _prcp_norm,
     wrap_t_s_dict,

@@ -9,12 +9,12 @@ from datetime import datetime
 from typing import Optional
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from hydroutils_mini.hydro_unit import streamflow_unit_conv
-from torchhydro_mini.configs.config import DATE_FORMATS
-from torchhydro_mini.datasets.data_scalers import ScalerHub
-from hydrodataset_mini.data_reader import ReadDatasetV1
+from hydrodatautils.foundation.hydro_unit import streamflow_unit_conv
+from hydromodel_dl.configs.config import DATE_FORMATS
+from hydromodel_dl.datasets.data_scalers import ScalerHub
+from hydrodata_tl.data_reader import ReadDatasetV1
 
-from hydroutils_mini.hydro_data import (
+from hydrodatautils.foundation.hydro_data import (
     warn_if_nan,
     wrap_t_s_dict,
 )

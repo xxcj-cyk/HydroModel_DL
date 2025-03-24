@@ -11,7 +11,7 @@ Copyright (c) 2023-2024 Wenyu Ouyang. All rights reserved.
 from collections import defaultdict
 import numpy as np
 from torch.utils.data import RandomSampler, Sampler
-from torchhydro_mini.datasets.data_sets import BaseDataset
+from hydromodel_dl.datasets.data_sets import BaseDataset
 from typing import Iterator, Optional
 import torch
 

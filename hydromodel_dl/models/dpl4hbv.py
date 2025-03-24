@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchhydro_mini.configs.model_config import MODEL_PARAM_DICT
-from torchhydro_mini.models.lstm import SimpleLSTM
-from torchhydro_mini.models.kernel_conv import uh_conv, uh_gamma
+from hydromodel_dl.configs.model_config import MODEL_PARAM_DICT
+from hydromodel_dl.models.lstm import SimpleLSTM
+from hydromodel_dl.models.kernel_conv import uh_conv, uh_gamma
 
 
 class Hbv4Dpl(torch.nn.Module):

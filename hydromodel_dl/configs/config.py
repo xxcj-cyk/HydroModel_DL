@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from hydroutils_mini import hydro_dirction
+from hydrodatautils.foundation import hydro_dirction
 
 DAYMET_NAME = "daymet"
 SSM_SMAP_NAME = "ssm"

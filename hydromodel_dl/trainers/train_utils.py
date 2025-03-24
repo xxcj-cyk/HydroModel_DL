@@ -14,13 +14,13 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from hydroutils_mini.hydro_statistic import statistic_nd_error
-from hydroutils_mini.hydro_model import (
+from hydrodatautils.foundation.hydro_statistic import statistic_nd_error
+from hydrodatautils.foundation.hydro_model import (
     get_lastest_file_in_a_dir,
     get_latest_file_in_a_lst,
 )
-from hydroutils_mini.hydro_format import unserialize_json
-from torchhydro_mini.models.crits import GaussianLoss
+from hydrodatautils.foundation.hydro_format import unserialize_json
+from hydromodel_dl.models.crits import GaussianLoss
 
 
 def model_infer(seq_first, device, model, xs, ys):
