@@ -32,6 +32,10 @@ def default_config_file():
                 # the name of data source, such as CAMELS
                 "source_names": ["CAMELS"],
                 "source_paths": ["../../example/camels_us"],
+                "other_settings": {
+                    # select the type of datasets
+                    "dataset_type": "TL",
+                    },
             },
             "validation_path": None,
             "test_path": None,
@@ -352,6 +356,7 @@ def cmd(
     patience=None,
     min_time_unit=None,
     min_time_interval=None,
+    dataset_type=None,
 ):
     """input args from cmd"""
     parser = argparse.ArgumentParser(
@@ -820,6 +825,13 @@ def cmd(
         default=min_time_interval,
         type=int,
     )
+    parser.add_argument(
+        "--dataset_type",
+        dest="dataset_type",
+        help="Type of dataset to use: 'TL' or 'CAMELS' or others",
+        default=dataset_type,
+        type=str,
+    )
     # To make pytest work in PyCharm, here we use the following code instead of "args = parser.parse_args()":
     # https://blog.csdn.net/u014742995/article/details/100119905
     args, unknown = parser.parse_known_args()
@@ -873,6 +885,8 @@ def update_cfg(cfg_file, new_args):
         cfg_file["data_cfgs"]["test_path"] = os.path.join(result_dir, subset, subexp)
     if new_args.source_cfgs is not None:
         cfg_file["data_cfgs"]["source_cfgs"] = new_args.source_cfgs
+    if new_args.dataset_type is not None:
+        cfg_file["data_cfgs"]["source_cfgs"]["other_settings"]["dataset_type"] = new_args.dataset_type
     if new_args.scaler is not None:
         cfg_file["data_cfgs"]["scaler"] = new_args.scaler
     if new_args.scaler_params is not None:

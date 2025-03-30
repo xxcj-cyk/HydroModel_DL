@@ -12,7 +12,8 @@ from tqdm import tqdm
 from hydrodatautils.foundation.hydro_unit import streamflow_unit_conv
 from hydromodel_dl.configs.config import DATE_FORMATS
 from hydromodel_dl.datasets.data_scalers import ScalerHub
-from hydrodata_tl.data_reader import ReadDatasetV1
+from hydrodata_tl.data_reader import ReadDataset_TL
+from hydrodata_camels.data_reader import ReadDataset_CAMELS
 
 from hydrodatautils.foundation.hydro_data import (
     warn_if_nan,
@@ -103,8 +104,12 @@ class BaseDataset(Dataset):
         # source_name = self.data_cfgs["source_cfgs"]["source_name"]
         # source_path = self.data_cfgs["source_cfgs"]["source_path"]
         other_settings = self.data_cfgs["source_cfgs"].get("other_settings", {})
-        return ReadDatasetV1(**other_settings)
-
+        dataset_type = other_settings.get("dataset_type", {})
+        if dataset_type == "TL":
+            return ReadDataset_TL(**other_settings)
+        elif dataset_type == "CAMELS":
+            return ReadDataset_CAMELS(**other_settings)
+        
     @property
     def streamflow_name(self):
         return self.data_cfgs["target_cols"][0]
