@@ -30,12 +30,10 @@ def default_config_file():
         "data_cfgs": {
             "source_cfgs": {
                 # the name of data source, such as CAMELS
-                "source_names": ["CAMELS"],
+                "dataset_type": "CAMELS",
+                "source_names": ["CAMELS_US_daymet"],
                 "source_paths": ["../../example/camels_us"],
-                "other_settings": {
-                    # select the type of datasets
-                    "dataset_type": "TL",
-                    },
+                "other_settings": {},
             },
             "validation_path": None,
             "test_path": None,

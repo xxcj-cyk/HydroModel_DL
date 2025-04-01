@@ -101,14 +101,23 @@ class BaseDataset(Dataset):
 
     @property
     def data_source(self):
-        # source_name = self.data_cfgs["source_cfgs"]["source_name"]
-        # source_path = self.data_cfgs["source_cfgs"]["source_path"]
-        other_settings = self.data_cfgs["source_cfgs"].get("other_settings", {})
-        dataset_type = other_settings.get("dataset_type", {})
+        dataset_type = self.data_cfgs["source_cfgs"]["dataset_type"]
+        source_name = self.data_cfgs["source_cfgs"]["source_name"]
+        source_path = self.data_cfgs["source_cfgs"]["source_path"]
         if dataset_type == "TL":
-            return ReadDataset_TL(**other_settings)
+            return ReadDataset_TL(**self.data_cfgs["source_cfgs"])
         elif dataset_type == "CAMELS":
-            return ReadDataset_CAMELS(**other_settings)
+            return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
+    @property
+    def data_source(self):
+        # 直接从source_cfgs中获取参数，而不是从嵌套的other_settings中获取
+        dataset_type = self.data_cfgs["source_cfgs"].get("dataset_type", "TL")
+        
+        # 将所有参数直接传递给相应的数据读取类
+        if dataset_type == "TL":
+            return ReadDataset_TL(**self.data_cfgs["source_cfgs"])
+        elif dataset_type == "CAMELS":
+            return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
         
     @property
     def streamflow_name(self):
