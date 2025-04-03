@@ -7,8 +7,9 @@ from hydromodel_dl.datasets.data_sets import (
 
 datasets_dirction_dict = {
     # Transfer learning evaluation datasets
-    "CAMELS_US_ERA5Land": DATASETS_DIR_TL["CAMELS_US_ERA5Land"]["EXPORT_DIR"],
     "CAMELS_US_HydroATLAS":DATASETS_DIR_TL["CAMELS_US_HydroATLAS"]["EXPORT_DIR"],
+    "CAMELS_US_ERA5Land": DATASETS_DIR_TL["CAMELS_US_ERA5Land"]["EXPORT_DIR"],
+    "CAMELS_US_MSWEP":DATASETS_DIR_TL["CAMELS_US_MSWEP"]["EXPORT_DIR"],
     "CAMELS_US_HydroATLAS_ERA5Land":DATASETS_DIR_TL["CAMELS_US_HydroATLAS_ERA5Land"]["EXPORT_DIR"],
     "CAMELS_US_HydroATLAS_ERA5Land_MSWEP": DATASETS_DIR_TL["CAMELS_US_HydroATLAS_ERA5Land_MSWEP"]["EXPORT_DIR"],
     "Changdian_HydroATLAS_ERA5Land":DATASETS_DIR_TL["Changdian_HydroATLAS_ERA5Land"]["EXPORT_DIR"],
