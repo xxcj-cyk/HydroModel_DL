@@ -14,6 +14,7 @@ from hydromodel_dl.configs.config import DATE_FORMATS
 from hydromodel_dl.datasets.data_scalers import ScalerHub
 from hydrodata_tl.data_reader import ReadDataset_TL
 from hydrodata_camels.data_reader import ReadDataset_CAMELS
+from hydrodata_china.data_reader import ReadDataset_CHINA
 
 from hydrodatautils.foundation.hydro_data import (
     warn_if_nan,
@@ -108,6 +109,8 @@ class BaseDataset(Dataset):
             return ReadDataset_TL(**self.data_cfgs["source_cfgs"])
         elif dataset_type == "CAMELS":
             return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
+        elif dataset_type == "CHINA":
+            return ReadDataset_CHINA(**self.data_cfgs["source_cfgs"])
     @property
     def data_source(self):
         # 直接从source_cfgs中获取参数，而不是从嵌套的other_settings中获取
@@ -118,6 +121,8 @@ class BaseDataset(Dataset):
             return ReadDataset_TL(**self.data_cfgs["source_cfgs"])
         elif dataset_type == "CAMELS":
             return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
+        elif dataset_type == "CHINA":
+            return ReadDataset_CHINA(**self.data_cfgs["source_cfgs"])
         
     @property
     def streamflow_name(self):
