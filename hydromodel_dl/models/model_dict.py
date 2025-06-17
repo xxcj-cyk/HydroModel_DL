@@ -6,6 +6,8 @@ from hydromodel_dl.models.crits import (
     RMSELoss,
     RmseLoss,
     MultiOutLoss,
+    PESLoss,
+    HybridLoss,
 )
 
 pytorch_model_dict = {
@@ -21,4 +23,6 @@ pytorch_criterion_dict = {
     # xxxSum means that calculate the criterion for each "feature"(the final dim of output), then sum them up
     "RMSESum": RmseLoss,
     "MultiOutLoss": MultiOutLoss,
+    "PES": PESLoss,
+    "Hybrid": HybridLoss,
 }
