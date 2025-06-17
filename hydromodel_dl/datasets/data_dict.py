@@ -22,7 +22,7 @@ datasets_dirction_dict = {
     "CAMELS_FR": DATASETS_DIR_CAMELS["CAMELS_FR"]["EXPORT_DIR"],
     "CAMELS_SE": DATASETS_DIR_CAMELS["CAMELS_SE"]["EXPORT_DIR"],
     "CAMELS_US_daymet": DATASETS_DIR_CAMELS["CAMELS_US_daymet"]["EXPORT_DIR"],
-    # Project in China
+    # Local Dataset of China
     "Sanxia_1D": DATASETS_DIR_CHINA["Sanxia_1D"]["EXPORT_DIR"],
     "Anhui_1H": DATASETS_DIR_CHINA["Anhui_1H"]["EXPORT_DIR"],
 }
