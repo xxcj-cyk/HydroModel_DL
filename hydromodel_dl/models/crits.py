@@ -102,52 +102,6 @@ def deal_gap_data(output, target, data_gap, device):
     return p, t
 
 
-class RMSELoss(torch.nn.Module):
-    def __init__(self, variance_penalty=0.0):
-        super().__init__()
-        self.mse = torch.nn.MSELoss()
-        self.variance_penalty = variance_penalty
-
-    def forward(self, output: torch.Tensor, target: torch.Tensor):
-        if len(output) <= 1 or self.variance_penalty <= 0.0:
-            return torch.sqrt(self.mse(target, output))
-        diff = torch.sub(target, output)
-        std_dev = torch.std(diff)
-        var_penalty = self.variance_penalty * std_dev
-
-        return torch.sqrt(self.mse(target, output)) + var_penalty
-
-
-class RmseLoss(torch.nn.Module):
-    def __init__(self):
-        """
-        RMSE loss which could ignore NaN values
-
-        Now we only support 3-d tensor and 1-d tensor
-        """
-        super(RmseLoss, self).__init__()
-
-    def forward(self, output, target):
-        if target.dim() == 1:
-            mask = target == target
-            p = output[mask]
-            t = target[mask]
-            return torch.sqrt(((p - t) ** 2).mean())
-        ny = target.shape[2]
-        loss = 0
-        for k in range(ny):
-            p0 = output[:, :, k]
-            t0 = target[:, :, k]
-            mask = t0 == t0
-            p = p0[mask]
-            p = torch.where(torch.isnan(p), torch.full_like(p, 0), p)
-            t = t0[mask]
-            t = torch.where(torch.isnan(t), torch.full_like(t, 0), t)
-            temp = torch.sqrt(((p - t) ** 2).mean())
-            loss = loss + temp
-        return loss
-
-
 class MultiOutLoss(torch.nn.Module):
     def __init__(
         self,
@@ -243,3 +197,141 @@ class MultiOutLoss(torch.nn.Module):
                 continue
             loss = loss + temp
         return loss
+
+
+class MAELoss(torch.nn.Module):
+    def __init__(self, reduction='mean'):
+        """
+        MAE loss which ignores NaN values and supports reduction.
+        """
+        super(MAELoss, self).__init__()
+        assert reduction in ('none', 'mean', 'sum')
+        self.reduction = reduction
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        mask = ~torch.isnan(output) & ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=output.device, requires_grad=True)
+        abs_error = torch.abs(output[mask] - target[mask])
+        if self.reduction == 'none':
+            return abs_error
+        elif self.reduction == 'mean':
+            return torch.mean(abs_error)
+        elif self.reduction == 'sum':
+            return torch.sum(abs_error)
+        else:
+            raise ValueError(
+                f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
+            )
+
+class MSELoss(torch.nn.Module):
+    def __init__(self, reduction='mean'):
+        """
+        MSE loss which ignores NaN values and supports reduction.
+        """
+        super(MSELoss, self).__init__()
+        assert reduction in ('none', 'mean', 'sum')
+        self.reduction = reduction
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        mask = ~torch.isnan(output) & ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=output.device, requires_grad=True)
+        sq_error = (output[mask] - target[mask]) ** 2
+        if self.reduction == 'none':
+            return sq_error
+        elif self.reduction == 'mean':
+            return torch.mean(sq_error)
+        elif self.reduction == 'sum':
+            return torch.sum(sq_error)
+        else:
+            raise ValueError(
+                f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
+            )
+
+class RMSELoss(torch.nn.Module):
+    def __init__(self, reduction='mean'):
+        """
+        RMSE loss which ignores NaN values and supports reduction.
+        """
+        super(RMSELoss, self).__init__()
+        assert reduction in ('none', 'mean', 'sum')
+        self.reduction = reduction
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        mask = ~torch.isnan(output) & ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=output.device, requires_grad=True)
+        sq_error = (output[mask] - target[mask]) ** 2
+        if self.reduction == 'none':
+            return torch.sqrt(sq_error)
+        elif self.reduction == 'mean':
+            return torch.sqrt(torch.mean(sq_error))
+        elif self.reduction == 'sum':
+            return torch.sqrt(torch.sum(sq_error))
+        else:
+            raise ValueError(
+                f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
+            )
+
+class PESLoss(torch.nn.Module):
+    def __init__(self, reduction='mean'):
+        """
+        PES Loss: MSE × sigmoid(MSE)
+        """
+        super(PESLoss, self).__init__()
+        self.mse = MSELoss(reduction='none')
+        assert reduction in ('none', 'mean', 'sum')
+        self.reduction = reduction
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        mask = ~torch.isnan(output) & ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=output.device, requires_grad=True)
+        output_masked = output[mask]
+        target_masked = target[mask]
+        mse_value = self.mse(output_masked, target_masked)
+        sigmoid_mse = torch.sigmoid(mse_value)
+        loss = mse_value * sigmoid_mse
+        if self.reduction == 'none':
+            return loss
+        elif self.reduction == 'mean':
+            return torch.mean(loss)
+        elif self.reduction == 'sum':
+            return torch.sum(loss)
+        else:
+            raise ValueError(
+                f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
+            )
+
+class HybridLoss(torch.nn.Module):
+    def __init__(self, mae_weight=0.5, reduction='mean'):
+        """
+        Hybrid Loss: PES loss + mae_weight × MAE
+        """
+        super(HybridLoss, self).__init__()
+        self.pes = PESLoss(reduction='none')
+        self.mae = MAELoss(reduction='none')
+        self.mae_weight = mae_weight
+        assert reduction in ('none', 'mean', 'sum')
+        self.reduction = reduction
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor):
+        mask = ~torch.isnan(output) & ~torch.isnan(target)
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=output.device, requires_grad=True)
+        output_masked = output[mask]
+        target_masked = target[mask]
+        pes = self.pes(output_masked, target_masked)
+        mae = self.mae(output_masked, target_masked)
+        loss = pes + self.mae_weight * mae
+        if self.reduction == 'none':
+            return loss
+        elif self.reduction == 'mean':
+            return torch.mean(loss)
+        elif self.reduction == 'sum':
+            return torch.sum(loss)
+        else:
+            raise ValueError(
+                f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
+            )
