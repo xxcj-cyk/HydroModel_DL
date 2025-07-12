@@ -12,9 +12,10 @@ from tqdm import tqdm
 from hydrodatautils.foundation.hydro_unit import streamflow_unit_conv
 from hydromodel_dl.configs.config import DATE_FORMATS
 from hydromodel_dl.datasets.data_scalers import ScalerHub
-from hydrodata_tl.data_reader import ReadDataset_TL
-from hydrodata_camels.data_reader import ReadDataset_CAMELS
-from hydrodata_china.data_reader import ReadDataset_CHINA
+from hydromodel_dl.datasets.data_reader import ReadDatasets
+# from hydrodata_tl.data_reader import ReadDataset_TL
+# from hydrodata_camels.data_reader import ReadDataset_CAMELS
+# from hydrodata_china.data_reader import ReadDataset_CHINA
 
 from hydrodatautils.foundation.hydro_data import (
     warn_if_nan,
@@ -103,12 +104,10 @@ class BaseDataset(Dataset):
     @property
     def data_source(self):
         dataset_type = self.data_cfgs["source_cfgs"].get("dataset_type", "TL")
-        if dataset_type == "TL":
-            return ReadDataset_TL(**self.data_cfgs["source_cfgs"])
-        elif dataset_type == "CAMELS":
-            return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
-        elif dataset_type == "CHINA":
-            return ReadDataset_CHINA(**self.data_cfgs["source_cfgs"])
+        source_name = self.data_cfgs["source_cfgs"].get("source_name")
+        if not source_name:
+            raise ValueError("'source_name' must be provided in 'source_cfgs'")
+        return ReadDatasets(dataset_name=dataset_type, source_name=source_name)
         
     @property
     def streamflow_name(self):
