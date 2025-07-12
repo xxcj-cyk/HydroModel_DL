@@ -906,10 +906,10 @@ class DplLstmXaj(nn.Module):
         Returns
         -------
         torch.Tensor
-            one time forward result
+            streamflow result only (q)
         """
-        q, e = lstm_pbm(self.dl_model, self.pb_model, self.param_func, x, z)
-        return torch.cat([q, e], dim=-1)
+        q, _ = lstm_pbm(self.dl_model, self.pb_model, self.param_func, x, z)
+        return q
 
 
 def lstm_pbm(dl_model, pb_model, param_func, x, z):

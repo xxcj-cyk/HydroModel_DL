@@ -1,3 +1,12 @@
+"""
+@Author:             Yikai CHAI
+@Email:              chaiyikai@mail.dlut.edu.cn
+@Company:            Dalian University of Technology
+@Date:               2025-07-13 00:48:36
+@Last Modified by:  Yikai CHAI
+@Last Modified time:2025-07-13 00:49:24
+"""
+
 from hydromodel_dl.datasets.data_sets import (
     BaseDataset,
     DplDataset,

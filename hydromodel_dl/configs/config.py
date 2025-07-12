@@ -872,13 +872,13 @@ def update_cfg(cfg_file, new_args):
     """
     print("update config file")
     project_dir = os.getcwd()
-    result_dir = os.path.join(project_dir, "results")
+    result_dir = os.path.join(project_dir, "Result")
     if os.path.exists(result_dir) is False:
         os.makedirs(result_dir)
     if new_args.sub is not None:
         subset, subexp = new_args.sub.split(os.sep)
         cfg_file["data_cfgs"]["validation_path"] = os.path.join(
-            project_dir, "results", subset, subexp
+            project_dir, "Result", subset, subexp
         )
         cfg_file["data_cfgs"]["test_path"] = os.path.join(result_dir, subset, subexp)
     if new_args.source_cfgs is not None:
