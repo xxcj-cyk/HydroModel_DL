@@ -1,12 +1,3 @@
-"""
-@Author:             Yikai CHAI
-@Email:              chaiyikai@mail.dlut.edu.cn
-@Company:            Dalian University of Technology
-@Date:               2025-07-13 00:48:36
-@Last Modified by:   Yikai CHAI
-@Last Modified time: 2025-07-13 00:49:22
-"""
-
 import logging
 import re
 import sys
@@ -21,7 +12,12 @@ from tqdm import tqdm
 from hydrodatautils.foundation.hydro_unit import streamflow_unit_conv
 from hydromodel_dl.configs.config import DATE_FORMATS
 from hydromodel_dl.datasets.data_scalers import ScalerHub
-from hydromodel_dl.datasets.data_reader import ReadDatasets
+from hydromodel_dl.datasets.data_readers import (
+    ReadDataset_BUDYKO,
+    ReadDataset_CAMELS,
+    ReadDataset_CHINA
+)
+
 from hydrodatautils.foundation.hydro_data import (
     warn_if_nan,
     wrap_t_s_dict,
@@ -108,11 +104,13 @@ class BaseDataset(Dataset):
 
     @property
     def data_source(self):
-        dataset_type = self.data_cfgs["source_cfgs"].get("dataset_type", "TL")
-        source_name = self.data_cfgs["source_cfgs"].get("source_name")
-        if not source_name:
-            raise ValueError("'source_name' must be provided in 'source_cfgs'")
-        return ReadDatasets(dataset_name=dataset_type, source_name=source_name)
+        dataset_type = self.data_cfgs["source_cfgs"].get("dataset_type", "CAMELS")
+        if dataset_type == "BUDYKO":
+            return ReadDataset_BUDYKO(**self.data_cfgs["source_cfgs"])
+        elif dataset_type == "CAMELS":
+            return ReadDataset_CAMELS(**self.data_cfgs["source_cfgs"])
+        if dataset_type == "CHINA":
+            return ReadDataset_CHINA(**self.data_cfgs["source_cfgs"])
         
     @property
     def streamflow_name(self):

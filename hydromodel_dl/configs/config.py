@@ -826,7 +826,7 @@ def cmd(
     parser.add_argument(
         "--dataset_type",
         dest="dataset_type",
-        help="Type of dataset to use: 'TL' or 'CAMELS' or others",
+        help="Type of dataset to use: 'BUDYKO' or 'CAMELS' or others",
         default=dataset_type,
         type=str,
     )
