@@ -312,6 +312,11 @@ class DapengScaler(object):
             # for pbm's output, its unit is mm/day, so we don't need to recover its unit
             pred = target_values
         else:
+            if (
+                self.data_cfgs["dataset"] == "FloodEventDataset"
+                and "flood_event" in target_cols
+            ):
+                target_cols.remove("flood_event")
             pred = _trans_norm(
                 target_values,
                 target_cols,

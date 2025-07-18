@@ -20,7 +20,7 @@ from hydrodatautils.foundation.hydro_model import (
     get_latest_file_in_a_lst,
 )
 from hydrodatautils.foundation.hydro_format import unserialize_json
-from hydromodel_dl.models.crits import GaussianLoss
+from hydromodel_dl.models.crits import GaussianLoss, HybridFloodloss
 
 
 def model_infer(seq_first, device, model, xs, ys):
@@ -113,6 +113,10 @@ def denormalize4eval(eval_dataloader, output, labels, rolling=False):
         selected_time_points = target_data.coords["time"][warmup_length:]
 
     selected_data = target_data.sel(time=selected_time_points)
+    if eval_dataloader.dataset.name == "FloodEventDataset":
+        # FloodEventDataset has two variables: streamflow and flood_event
+        selected_data = selected_data.drop_sel(variable="flood_event")
+        labels = labels[:, :, :-1]  # only streamflow is used for evaluation
     preds_xr = target_scaler.inverse_transform(
         xr.DataArray(
             output.transpose(2, 0, 1),
@@ -230,8 +234,8 @@ def evaluate_validation(
         metrics
     """
     fill_nan = evaluation_cfgs["fill_nan"]
-    if isinstance(fill_nan, list) and len(fill_nan) != len(target_col):
-        raise ValueError("Length of fill_nan must be equal to length of target_col.")
+    # if isinstance(fill_nan, list) and len(fill_nan) != len(target_col):
+    #     raise ValueError("Length of fill_nan must be equal to length of target_col.")
     eval_log = {}
     batch_size = validation_data_loader.batch_size
     evaluation_metrics = evaluation_cfgs["metrics"]
@@ -344,6 +348,21 @@ def compute_loss(
         else:
             g_loss = GaussianLoss(output[0][:, 0], output[1][:, 0])
         return g_loss(labels)
+    if (
+        isinstance(output, torch.Tensor)
+        and len(labels.shape) != len(output.shape)
+        and len(labels.shape) > 1
+    ):
+        if labels.shape[1] == output.shape[1]:
+            labels = labels.unsqueeze(2)
+        else:
+            labels = labels.unsqueeze(0)
+    if isinstance(criterion, HybridFloodloss):
+        # labels has one more column than output, which is the flood mask
+        # so we need to remove the last column of labels to get targets
+        flood_mask = labels[:, :, -1:]  # Extract flood mask from last column
+        targets = labels[:, :, :-1]  # Extract targets (remove last column)
+        return criterion(output, targets, flood_mask)
     if (
         isinstance(output, torch.Tensor)
         and len(labels.shape) != len(output.shape)

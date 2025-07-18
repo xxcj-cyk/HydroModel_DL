@@ -884,7 +884,9 @@ def update_cfg(cfg_file, new_args):
     if new_args.source_cfgs is not None:
         cfg_file["data_cfgs"]["source_cfgs"] = new_args.source_cfgs
     if new_args.dataset_type is not None:
-        cfg_file["data_cfgs"]["source_cfgs"]["other_settings"]["dataset_type"] = new_args.dataset_type
+        cfg_file["data_cfgs"]["source_cfgs"]["other_settings"][
+            "dataset_type"
+        ] = new_args.dataset_type
     if new_args.scaler is not None:
         cfg_file["data_cfgs"]["scaler"] = new_args.scaler
     if new_args.scaler_params is not None:
@@ -1003,10 +1005,10 @@ def update_cfg(cfg_file, new_args):
         cfg_file["model_cfgs"]["weight_path_add"] = new_args.weight_path_add
     if new_args.n_output is not None:
         cfg_file["training_cfgs"]["multi_targets"] = new_args.n_output
-        if len(cfg_file["data_cfgs"]["target_cols"]) != new_args.n_output:
-            raise AttributeError(
-                "Please make sure size of vars in data_cfgs/target_cols is same as n_output"
-            )
+        # if len(cfg_file["data_cfgs"]["target_cols"]) != new_args.n_output:
+        #     raise AttributeError(
+        #         "Please make sure size of vars in data_cfgs/target_cols is same as n_output"
+        #     )
     if new_args.model_hyperparam is not None:
         # raise AttributeError("Please set the model_hyperparam!!!")
         cfg_file["model_cfgs"]["model_hyperparam"] = new_args.model_hyperparam
