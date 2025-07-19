@@ -27,6 +27,6 @@ pytorch_criterion_dict = {
     "RMSE": RMSELoss,
     "PES": PESLoss,
     "Hybrid": HybridLoss,
-    "RMSEFloodLoss": RMSEFloodLoss,
-    "HybridFloodLoss": HybridFloodLoss,
+    "RMSEFlood": RMSEFloodLoss,
+    "HybridFlood": HybridFloodLoss,
 }
