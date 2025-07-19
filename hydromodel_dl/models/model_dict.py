@@ -8,7 +8,8 @@ from hydromodel_dl.models.crits import (
     RMSELoss,
     PESLoss,
     HybridLoss,
-    HybridFloodloss,
+    RMSEFloodLoss,
+    HybridFloodLoss,
 )
 
 pytorch_model_dict = {
@@ -26,5 +27,6 @@ pytorch_criterion_dict = {
     "RMSE": RMSELoss,
     "PES": PESLoss,
     "Hybrid": HybridLoss,
-    "HybridFloodloss": HybridFloodloss,  # Deprecated, use HybridLoss instead
+    "RMSEFloodLoss": RMSEFloodLoss,
+    "HybridFloodLoss": HybridFloodLoss,
 }

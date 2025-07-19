@@ -11,7 +11,7 @@ Copyright (c) 2023-2024 Wenyu Ouyang. All rights reserved.
 from collections import defaultdict
 import numpy as np
 from torch.utils.data import RandomSampler, Sampler
-from hydromodel_dl.datasets.data_sets import BaseDataset
+from hydromodel_dl.datasets.data_sets import LongTermDataset
 from typing import Iterator, Optional
 import torch
 
@@ -74,7 +74,7 @@ class BasinBatchSampler(Sampler[int]):
 
     Parameters
     ----------
-    dataset : BaseDataset
+    dataset : LongTermDataset
         The dataset to sample from, expected to have a `data_cfgs` attribute.
     num_samples : Optional[int], default=None
         The total number of samples to draw (optional).
@@ -134,7 +134,7 @@ class BasinBatchSampler(Sampler[int]):
         return self.num_samples
 
 
-def fl_sample_basin(dataset: BaseDataset):
+def fl_sample_basin(dataset: LongTermDataset):
     """
     Sample one basin data as a client from a dataset for federated learning
 
@@ -174,7 +174,7 @@ def fl_sample_basin(dataset: BaseDataset):
     return user_lookup_tables
 
 
-def fl_sample_region(dataset: BaseDataset):
+def fl_sample_region(dataset: LongTermDataset):
     """
     Sample one region data as a client from a dataset for federated learning
 

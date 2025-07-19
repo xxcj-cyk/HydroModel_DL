@@ -25,28 +25,20 @@ class MultiLSTM(nn.Module):
     def __init__(self, input_size, output_size, hidden_sizes, dr=0.0):
         super(MultiLSTM, self).__init__()
         self.linearIn = nn.Linear(input_size, hidden_sizes[0])
-
         if dr is None:
             dr = [0.0] * len(hidden_sizes)
         elif isinstance(dr, (int, float)):
-            # 如果是单个数字，扩展为数组
             dr = [dr] * len(hidden_sizes)
-
         assert len(dr) == len(
             hidden_sizes
         ), f"dr长度({len(dr)})必须与hidden_sizes长度({len(hidden_sizes)})相同"
-
-        # 创建多个单层LSTM
         self.lstm_layers = nn.ModuleList()
         self.dropout_layers = nn.ModuleList()
         for i in range(len(hidden_sizes)):
             if i == 0:
-                # 第一层的输入大小是hidden_sizes[0]
                 lstm_input_size = hidden_sizes[0]
             else:
-                # 后续层的输入大小是前一层的隐藏状态大小
                 lstm_input_size = hidden_sizes[i - 1]
-
             self.lstm_layers.append(
                 nn.LSTM(
                     lstm_input_size,
@@ -54,21 +46,17 @@ class MultiLSTM(nn.Module):
                     num_layers=1,
                 )
             )
-            # 为每层创建对应的dropout
             if dr[i] > 0:
                 self.dropout_layers.append(nn.Dropout(dr[i]))
             else:
-                self.dropout_layers.append(nn.Identity())  # 不做任何操作
-
+                self.dropout_layers.append(nn.Identity())
         self.linearOut = nn.Linear(hidden_sizes[-1], output_size)
 
     def forward(self, x):
         x0 = F.relu(self.linearIn(x))
-
-        # 逐层通过LSTM，每层后面跟一个dropout
         lstm_out = x0
         for lstm_layer, dropout_layer in zip(self.lstm_layers, self.dropout_layers):
             lstm_out, (hn, cn) = lstm_layer(lstm_out)
-            lstm_out = dropout_layer(lstm_out)  # 每个LSTM层后面都有dropout
+            lstm_out = dropout_layer(lstm_out)
 
         return self.linearOut(lstm_out)

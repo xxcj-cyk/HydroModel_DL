@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
 
 from hydromodel_dl.datasets.data_dict import datasets_read_dict
-from hydromodel_dl.datasets.data_sets import BaseDataset
+from hydromodel_dl.datasets.data_sets import LongTermDataset
 from hydromodel_dl.datasets.sampler import (
     data_sampler_dict,
 )
@@ -129,7 +129,7 @@ class DeepHydro(DeepHydroInterface):
             self.traindataset = self.make_dataset("train")
             if cfgs["data_cfgs"]["t_range_valid"] is not None:
                 self.validdataset = self.make_dataset("valid")
-        self.testdataset: BaseDataset = self.make_dataset("test")
+        self.testdataset: LongTermDataset = self.make_dataset("test")
         print(f"Torch is using {str(self.device)}")
 
     def load_model(self, mode="train"):

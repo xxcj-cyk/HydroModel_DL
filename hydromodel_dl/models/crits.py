@@ -160,8 +160,52 @@ class HybridLoss(torch.nn.Module):
                 f"Unsupported reduction method of loss function: {self.reduction}. Use 'mean', 'sum' or 'none'."
             )
 
+class RMSEFloodLoss(torch.nn.Module):
+    def __init__(self, reduction="mean"):
+        """
+        RMSE Flood Loss: RMSE loss with flood weighting
 
-class HybridFloodloss(torch.nn.Module):
+        Applies Root Mean Square Error loss with flood event filtering.
+        This class filters flood events first then calculates RMSE loss,
+        focusing computation only on flood periods.
+
+        Parameters
+        ----------
+        reduction : str
+            Reduction method for RMSE loss, default is "mean"
+        """
+        super(RMSEFloodLoss, self).__init__()
+        self.reduction = reduction
+
+    def forward(
+        self, predictions: torch.Tensor, targets: torch.Tensor, flood_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute flood-aware RMSE loss.
+
+        Parameters
+        ----------
+        predictions : torch.Tensor
+            Model predictions [batch_size, seq_len, output_features]
+        targets : torch.Tensor
+            Target values [batch_size, seq_len, output_features]
+        flood_mask : torch.Tensor
+            Flood mask [batch_size, seq_len, 1] (1 for flood, 0 for normal)
+
+        Returns
+        -------
+        torch.Tensor
+            Computed RMSE loss value
+        """
+        boolean_mask = flood_mask.to(torch.bool)
+        predictions = predictions[boolean_mask]
+        targets = targets[boolean_mask]
+
+        base_loss_func = RMSELoss(self.reduction)
+        return base_loss_func(predictions, targets)
+
+
+class HybridFloodLoss(torch.nn.Module):
     def __init__(self, mae_weight=0.5):
         """
         Hybrid Flood Loss: PES loss + mae_weight × MAE with flood weighting
@@ -180,7 +224,7 @@ class HybridFloodloss(torch.nn.Module):
         flood_weight : float
             Weight multiplier for flood events, default is 2.0
         """
-        super(HybridFloodloss, self).__init__()
+        super(HybridFloodLoss, self).__init__()
         self.mae_weight = mae_weight
 
     def forward(

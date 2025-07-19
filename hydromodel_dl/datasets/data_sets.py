@@ -79,7 +79,7 @@ def detect_date_format(date_str):
     raise ValueError(f"Unknown date format: {date_str}")
 
 
-class BaseDataset(Dataset):
+class LongTermDataset(Dataset):
     """Base data set class to load and preprocess data (batch-first) using PyTorch's Dataset"""
 
     def __init__(self, data_cfgs: dict, is_tra_val_te: str):
@@ -91,7 +91,7 @@ class BaseDataset(Dataset):
         is_tra_val_te
             train, vaild or test
         """
-        super(BaseDataset, self).__init__()
+        super(LongTermDataset, self).__init__()
         self.data_cfgs = data_cfgs
         if is_tra_val_te in {"train", "valid", "test"}:
             self.is_tra_val_te = is_tra_val_te
@@ -364,7 +364,7 @@ class BaseDataset(Dataset):
         )
         if isinstance(data_output_ds_, dict) or isinstance(data_forcing_ds_, dict):
             # this means the data source return a dict with key as time_unit
-            # in this BaseDataset, we only support unified time range for all basins, so we chose the first key
+            # in this LongTermDataset, we only support unified time range for all basins, so we chose the first key
             # TODO: maybe this could be refactored better
             data_forcing_ds_ = data_forcing_ds_[list(data_forcing_ds_.keys())[0]]
             data_output_ds_ = data_output_ds_[list(data_output_ds_.keys())[0]]
@@ -437,109 +437,7 @@ class BaseDataset(Dataset):
         self.lookup_table = dict(enumerate(lookup))
         self.num_samples = len(self.lookup_table)
 
-
-class DplDataset(BaseDataset):
-    """pytorch dataset for Differential parameter learning"""
-
-    def __init__(self, data_cfgs: dict, is_tra_val_te: str):
-        """
-        Parameters
-        ----------
-        data_cfgs
-            configs for reading source data
-        is_tra_val_te
-            train, vaild or test
-        """
-        super(DplDataset, self).__init__(data_cfgs, is_tra_val_te)
-        # we don't use y_un_norm as its name because in the main function we will use "y"
-        # For physical hydrological models, we need warmup, hence the target values should exclude data in warmup period
-        self.warmup_length = data_cfgs["warmup_length"]
-        self.target_as_input = data_cfgs["target_as_input"]
-        self.constant_only = data_cfgs["constant_only"]
-        if self.target_as_input and (not self.train_mode):
-            # if the target is used as input and train_mode is False,
-            # we need to get the target data in training period to generate pbm params
-            self.train_dataset = DplDataset(data_cfgs, is_tra_val_te="train")
-
-    def __getitem__(self, item):
-        """
-        Get one mini-batch for dPL (differential parameter learning) model
-
-        TODO: not check target_as_input and constant_only cases yet
-
-        Parameters
-        ----------
-        item
-            index
-
-        Returns
-        -------
-        tuple
-            a mini-batch data;
-            x_train (not normalized forcing), z_train (normalized data for DL model), y_train (not normalized output)
-        """
-        warmup = self.warmup_length
-        rho = self.rho
-        horizon = self.horizon
-        if self.train_mode:
-            xc_norm, _ = super(DplDataset, self).__getitem__(item)
-            basin, time = self.lookup_table[item]
-            if self.target_as_input:
-                # y_morn and xc_norm are concatenated and used for DL model
-                y_norm = torch.from_numpy(
-                    self.y[basin, time - warmup : time + rho + horizon, :]
-                ).float()
-                # the order of xc_norm and y_norm matters, please be careful!
-                z_train = torch.cat((xc_norm, y_norm), -1)
-            elif self.constant_only:
-                # only use attributes data for DL model
-                z_train = torch.from_numpy(self.c[basin, :]).float()
-            else:
-                z_train = xc_norm.float()
-            x_train = self.x_origin[basin, time - warmup : time + rho + horizon, :]
-            y_train = self.y_origin[basin, time : time + rho + horizon, :]
-        else:
-            x_norm = self.x[item, :, :]
-            if self.target_as_input:
-                # when target_as_input is True,
-                # we need to use training data to generate pbm params
-                x_norm = self.train_dataset.x[item, :, :]
-            if self.c is None or self.c.shape[-1] == 0:
-                xc_norm = torch.from_numpy(x_norm).float()
-            else:
-                c_norm = self.c[item, :]
-                c_norm = (
-                    np.repeat(c_norm, x_norm.shape[0], axis=0)
-                    .reshape(c_norm.shape[0], -1)
-                    .T
-                )
-                xc_norm = torch.from_numpy(
-                    np.concatenate((x_norm, c_norm), axis=1)
-                ).float()
-            if self.target_as_input:
-                # when target_as_input is True,
-                # we need to use training data to generate pbm params
-                # when used as input, warmup_length not included for y
-                y_norm = torch.from_numpy(self.train_dataset.y[item, :, :]).float()
-                # the order of xc_norm and y_norm matters, please be careful!
-                z_train = torch.cat((xc_norm, y_norm), -1)
-            elif self.constant_only:
-                # only use attributes data for DL model
-                z_train = torch.from_numpy(self.c[item, :]).float()
-            else:
-                z_train = xc_norm
-            x_train = self.x_origin[item, :, :]
-            y_train = self.y_origin[item, warmup:, :]
-        return (
-            torch.from_numpy(x_train).float(),
-            z_train,
-        ), torch.from_numpy(y_train).float()
-
-    def __len__(self):
-        return self.num_samples if self.train_mode else len(self.t_s_dict["sites_id"])
-
-
-class FloodEventDataset(BaseDataset):
+class FloodEventDataset(LongTermDataset):
     """Dataset class for flood event detection and prediction tasks.
 
     This dataset is specifically designed to handle flood event data where
