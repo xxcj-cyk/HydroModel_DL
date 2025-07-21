@@ -117,6 +117,9 @@ def denormalize4eval(eval_dataloader, output, labels, rolling=False):
         # FloodEventDataset has two variables: streamflow and flood_event
         selected_data = selected_data.drop_sel(variable="flood_event")
         labels = labels[:, :, :-1]  # only streamflow is used for evaluation
+    else:
+        # other datasets keep all variables
+        pass
     preds_xr = target_scaler.inverse_transform(
         xr.DataArray(
             output.transpose(2, 0, 1),

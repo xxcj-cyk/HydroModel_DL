@@ -103,6 +103,10 @@ class LongTermDataset(Dataset):
         self._load_data()
 
     @property
+    def name(self):
+        return "LongTermDataset"
+
+    @property
     def data_source(self):
         dataset_type = self.data_cfgs["source_cfgs"].get("dataset_type", "CAMELS")
         if dataset_type == "BUDYKO":
