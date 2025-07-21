@@ -441,6 +441,7 @@ class LongTermDataset(Dataset):
         self.lookup_table = dict(enumerate(lookup))
         self.num_samples = len(self.lookup_table)
 
+
 class FloodEventDataset(LongTermDataset):
     """Dataset class for flood event detection and prediction tasks.
 
@@ -496,6 +497,9 @@ class FloodEventDataset(LongTermDataset):
         """
         return len(self.data_cfgs["target_cols"]) - 1
 
+    def __len__(self):
+        return self.num_samples
+
     def _create_flood_mask(self, y):
         """Create flood mask from flood_event column
 
@@ -540,7 +544,7 @@ class FloodEventDataset(LongTermDataset):
         # Calculate total sample sequence length for training/validation
         sample_seqlen = self.warmup_length + self.rho + self.horizon
 
-        for basin_idx in range(self.ngrid):
+        for basin_idx in tqdm(range(self.ngrid)):
             # Get flood events for this basin
             flood_events = self.y_origin[basin_idx, :, self.flood_event_idx]
 
@@ -757,24 +761,6 @@ class FloodEventDataset(LongTermDataset):
         1. Variable length sequences (no padding)
         2. Flood mask for weighted loss computation
         """
-        if not self.train_mode:
-            x = self.x[item, :, :]
-            y = self.y[item, :, :]
-            flood_mask = self._create_flood_mask(y)
-            y_with_flood_mask = y.copy()
-            y_with_flood_mask[:, self.flood_event_idx] = flood_mask.squeeze()
-            if self.c is None or self.c.shape[-1] == 0:
-                return (
-                    torch.from_numpy(x).float(),
-                    torch.from_numpy(y_with_flood_mask).float(),
-                )
-            c = self.c[item, :]
-            c = np.repeat(c, x.shape[0], axis=0).reshape(c.shape[0], -1).T
-            xc = np.concatenate((x, c), axis=1)
-            return (
-                torch.from_numpy(xc).float(),
-                torch.from_numpy(y_with_flood_mask).float(),
-            )
         basin, start_idx, actual_length = self.lookup_table[item]
         warmup_length = self.warmup_length
         end_idx = start_idx + actual_length
@@ -803,3 +789,109 @@ class FloodEventDataset(LongTermDataset):
         xc = np.concatenate((x, c), axis=1)
 
         return torch.from_numpy(xc).float(), torch.from_numpy(y_with_flood_mask).float()
+
+
+class FloodEventDplDataset(FloodEventDataset):
+    """Dataset class for flood event detection and prediction with differential parameter learning support.
+
+    This dataset combines FloodEventDataset's flood event handling capabilities with
+    DplDataset's data format for differential parameter learning (dPL) models.
+    It handles flood event sequences and returns data in the format required for
+    physical hydrological models with neural network components.
+    """
+
+    def __init__(self, cfgs: dict, is_tra_val_te: str):
+        """Initialize FloodEventDplDataset
+
+        Parameters
+        ----------
+        cfgs : dict
+            Configuration dictionary containing data_cfgs, training_cfgs, evaluation_cfgs
+        is_tra_val_te : str
+            One of 'train', 'valid', or 'test'
+        """
+        super(FloodEventDplDataset, self).__init__(cfgs, is_tra_val_te)
+
+        # Additional attributes for DPL functionality
+        self.target_as_input = self.data_cfgs["target_as_input"]
+        self.constant_only = self.data_cfgs["constant_only"]
+
+        if self.target_as_input and (not self.train_mode):
+            # if the target is used as input and train_mode is False,
+            # we need to get the target data in training period to generate pbm params
+            self.train_dataset = FloodEventDplDataset(cfgs, is_tra_val_te="train")
+
+    @property
+    def name(self):
+        return "FloodEventDplDataset"
+
+    def __getitem__(self, item: int):
+        """Get one sample from the dataset in DPL format with flood mask
+
+        Returns data in the format required for differential parameter learning:
+        - x_train: not normalized forcing data
+        - z_train: normalized data for DL model (with flood mask)
+        - y_train: not normalized output data
+
+        Parameters
+        ----------
+        item : int
+            Index of the sample
+
+        Returns
+        -------
+        tuple
+            ((x_train, z_train), y_train) where:
+            - x_train: torch.Tensor, not normalized forcing data
+            - z_train: torch.Tensor, normalized data for DL model
+            - y_train: torch.Tensor, not normalized output data with flood mask
+        """
+        basin, start_idx, actual_length = self.lookup_table[item]
+        end_idx = start_idx + actual_length
+        warmup_length = self.warmup_length
+        # Get normalized data first (using parent's logic for flood mask)
+        xc_norm, y_norm_with_mask = super(FloodEventDplDataset, self).__getitem__(item)
+
+        # Get original (not normalized) data
+        x_origin = self.x_origin[basin, start_idx:end_idx, :]
+        y_origin = self.y_origin[basin, start_idx + warmup_length : end_idx, :]
+
+        # Create flood mask for original y data
+        flood_mask_origin = self._create_flood_mask(y_origin)
+        y_origin_with_mask = y_origin.copy()
+        y_origin_with_mask[:, self.flood_event_idx] = flood_mask_origin.squeeze()
+
+        # Prepare z_train based on configuration
+        if self.target_as_input:
+            # y_norm and xc_norm are concatenated and used for DL model
+            # the order of xc_norm and y_norm matters, please be careful!
+            z_train = torch.cat((xc_norm, y_norm_with_mask), -1)
+        elif self.constant_only:
+            # only use attributes data for DL model
+            if self.c is None or self.c.shape[-1] == 0:
+                # If no constant features, use a zero tensor
+                z_train = torch.zeros((actual_length, 1)).float()
+            else:
+                c = self.c[basin, :]
+                # Repeat constants for the actual sequence length
+                c_repeated = (
+                    np.repeat(c, actual_length, axis=0).reshape(c.shape[0], -1).T
+                )
+                z_train = torch.from_numpy(c_repeated).float()
+        else:
+            # Use normalized input features with constants
+            z_train = xc_norm.float()
+
+        # Prepare x_train (original forcing data with constants if available)
+        if self.c is None or self.c.shape[-1] == 0:
+            x_train = torch.from_numpy(x_origin).float()
+        else:
+            c = self.c_origin[basin, :]
+            c_repeated = np.repeat(c, actual_length, axis=0).reshape(c.shape[0], -1).T
+            x_origin_with_c = np.concatenate((x_origin, c_repeated), axis=1)
+            x_train = torch.from_numpy(x_origin_with_c).float()
+
+        # y_train is the original output data with flood mask
+        y_train = torch.from_numpy(y_origin_with_mask).float()
+
+        return (x_train, z_train), y_train

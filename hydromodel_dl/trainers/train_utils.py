@@ -110,13 +110,18 @@ def denormalize4eval(eval_dataloader, output, labels, rolling=False):
         selected_time_points = target_data.coords["time"][rho - prec_window : -1]
     else:
         warmup_length = eval_dataloader.dataset.warmup_length
-        selected_time_points = target_data.coords["time"][warmup_length:]
+        if eval_dataloader.dataset.name == "FloodEventDplDataset":
+            selected_time_points = target_data.coords["time"][:]
+        else:
+            selected_time_points = target_data.coords["time"][warmup_length:]
 
     selected_data = target_data.sel(time=selected_time_points)
-    if eval_dataloader.dataset.name == "FloodEventDataset":
+    if (
+        eval_dataloader.dataset.name == "FloodEventDataset"
+        or eval_dataloader.dataset.name == "FloodEventDplDataset"
+    ):
         # FloodEventDataset has two variables: streamflow and flood_event
         selected_data = selected_data.drop_sel(variable="flood_event")
-        labels = labels[:, :, :-1]  # only streamflow is used for evaluation
     else:
         # other datasets keep all variables
         pass
@@ -242,6 +247,7 @@ def evaluate_validation(
     eval_log = {}
     batch_size = validation_data_loader.batch_size
     evaluation_metrics = evaluation_cfgs["metrics"]
+    evaluator = evaluation_cfgs["evaluator"]
     if evaluation_cfgs["rolling"]:
         target_scaler = validation_data_loader.dataset.target_scaler
         target_data = target_scaler.data_target
@@ -278,6 +284,20 @@ def evaluate_validation(
             )
 
     else:
+        if evaluator["eval_way"] == "1pace":
+            pace_idx = evaluator["pace_idx"]
+            output = _recover_samples_to_basin(output, validation_data_loader, pace_idx)
+            if (
+                validation_data_loader.dataset.name == "FloodEventDataset"
+                or validation_data_loader.dataset.name == "FloodEventDplDataset"
+            ):
+                # FloodEventDataset has two variables: streamflow and flood_event
+                labels = labels[:, :, :-1]
+                if validation_data_loader.dataset.name == "FloodEventDplDataset":
+                    target_col = target_col[:-1]
+            else:
+                pass
+            labels = _recover_samples_to_basin(labels, validation_data_loader, pace_idx)
         preds_xr, obss_xr = denormalize4eval(validation_data_loader, output, labels)
         for i, col in enumerate(target_col):
             obs = obss_xr[col].to_numpy()
@@ -692,3 +712,56 @@ def get_latest_tensorboard_event_file(log_dir):
         for event_file_names in event_file_names_lst
     ]
     return event_files[ctimes.index(max(ctimes))]
+
+
+def _recover_samples_to_basin(arr_3d, valorte_data_loader, pace_idx):
+    """Reorganize the 3D prediction results by basin
+
+    Parameters
+    ----------
+    arr_3d : np.ndarray
+        A 3D prediction array with the shape (total number of samples, number of time steps, number of features).
+    valorte_data_loader: DataLoader
+        The corresponding data loader used to obtain the basin-time index mapping.
+    pace_idx: int
+        Which time step was chosen to show.
+        -1 means we chose the final value for one prediction
+        positive values means we chose the results during horzion periods
+        we ignore 0, because it may lead to confusion. 1 means the 1st horizon period
+        TODO: when hindcast_output is not None, this part need to be modified.
+
+    Returns
+        -------
+        np.ndarray
+            The reorganized 3D array with the shape (number of basins, length of time, number of features).
+    """
+    dataset = valorte_data_loader.dataset
+    basin_num = len(dataset.t_s_dict["sites_id"])
+    nt = dataset.nt
+    rho = dataset.rho
+    warmup_len = dataset.warmup_length
+    horizon = dataset.horizon
+    nf = dataset.noutputvar
+    if (
+        valorte_data_loader.dataset.name == "FloodEventDataset"
+        or valorte_data_loader.dataset.name == "FloodEventDplDataset"
+    ) and nf == 0:
+        # if the dataset is FloodEventDataset and no features are selected, we set nf to 1
+        nf = 1
+
+    basin_array = np.full((basin_num, nt, nf), np.nan)
+
+    for sample_idx in range(arr_3d.shape[0]):
+        # Get the basin and start time index corresponding to this sample
+        basin, start_time, _ = dataset.lookup_table[sample_idx]
+        # Calculate the time position in the result array
+        if pace_idx < 0:
+            value = arr_3d[sample_idx, pace_idx, :]
+            result_time_idx = start_time + rho + horizon + pace_idx
+        else:
+            value = arr_3d[sample_idx, pace_idx - 1, :]
+            result_time_idx = start_time + rho + pace_idx - 1
+        # Fill in the corresponding position
+        basin_array[basin, result_time_idx, :] = value
+
+    return basin_array

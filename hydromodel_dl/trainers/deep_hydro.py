@@ -29,6 +29,7 @@ from hydromodel_dl.trainers.train_utils import (
     model_infer,
     read_pth_from_model_loader,
     torch_single_train,
+    _recover_samples_to_basin,
 )
 
 
@@ -397,6 +398,19 @@ class DeepHydro(DeepHydroInterface):
                     obs_[i, j : j + window_size, :] = obs_4d[i, j, :, :]
             pred = pred_.reshape(ngrid, recover_len, target_len)
             obs = obs_.reshape(ngrid, recover_len, target_len)
+        elif evaluation_cfgs["evaluator"]["eval_way"] == "1pace":
+            # if we use 1pace, we need to recover the samples to basin
+            pace_idx = evaluation_cfgs["evaluator"]["pace_idx"]
+            pred = _recover_samples_to_basin(pred, test_dataloader, pace_idx)
+            if (
+                test_dataloader.dataset.name == "FloodEventDataset"
+                or test_dataloader.dataset.name == "FloodEventDplDataset"
+            ):
+                # FloodEventDataset has two variables: streamflow and flood_event
+                obs = obs[:, :, :-1]
+            else:
+                pass
+            obs = _recover_samples_to_basin(obs, test_dataloader, pace_idx)
         pred_xr, obs_xr = denormalize4eval(
             test_dataloader, pred, obs, rolling=evaluation_cfgs["rolling"]
         )

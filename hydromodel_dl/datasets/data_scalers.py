@@ -314,8 +314,8 @@ class DapengScaler(object):
         else:
             if (
                 self.data_cfgs["dataset"] == "FloodEventDataset"
-                and "flood_event" in target_cols
-            ):
+                or self.data_cfgs["dataset"] == "FloodEventDplDataset"
+            ) and "flood_event" in target_cols:
                 target_cols.remove("flood_event")
             pred = _trans_norm(
                 target_values,

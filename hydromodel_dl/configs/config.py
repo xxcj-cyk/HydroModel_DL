@@ -280,6 +280,13 @@ def default_config_file():
             # for example, data is |1|2|3|4|  time_window=2 then the samples are |1|2|, |2|3| and |3|4|
             "rolling": False,
             "calc_metrics": True,
+            "evaluator": {
+                "eval_way": "once",
+            },
+            # "evaluator": {
+            #     "eval_way": "1pace",
+            #     "pace_idx": -1,
+            # },
         },
     }
 
@@ -355,6 +362,7 @@ def cmd(
     min_time_unit=None,
     min_time_interval=None,
     dataset_type=None,
+    evaluator=None,
 ):
     """input args from cmd"""
     parser = argparse.ArgumentParser(
@@ -830,6 +838,13 @@ def cmd(
         default=dataset_type,
         type=str,
     )
+    parser.add_argument(
+        "--evaluator",
+        dest="evaluator",
+        help="The evaluator config",
+        default=evaluator,
+        type=json.loads,
+    )
     # To make pytest work in PyCharm, here we use the following code instead of "args = parser.parse_args()":
     # https://blog.csdn.net/u014742995/article/details/100119905
     args, unknown = parser.parse_known_args()
@@ -1029,6 +1044,7 @@ def update_cfg(cfg_file, new_args):
             cfg_file["data_cfgs"]["prec_window"] = new_args.model_hyperparam[
                 "prec_window"
             ]
+
     if new_args.batch_size is not None:
         # raise AttributeError("Please set the batch_size!!!")
         batch_size = new_args.batch_size
@@ -1083,6 +1099,8 @@ def update_cfg(cfg_file, new_args):
         cfg_file["training_cfgs"]["early_stopping"] = new_args.early_stopping
     if new_args.lr_scheduler is not None:
         cfg_file["training_cfgs"]["lr_scheduler"] = new_args.lr_scheduler
+    if new_args.evaluator is not None:
+        cfg_file["evaluation_cfgs"]["evaluator"] = new_args.evaluator
     # print("the updated config:\n", json.dumps(cfg_file, indent=4, ensure_ascii=False))
 
 

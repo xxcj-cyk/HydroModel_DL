@@ -80,6 +80,8 @@ class Resulter:
         test_path = self.cfgs["data_cfgs"]["test_path"]
         fill_nan = self.cfgs["evaluation_cfgs"]["fill_nan"]
         #  Then evaluate the model metrics
+        if self.cfgs["data_cfgs"]["dataset"] == "FloodEventDplDataset":
+            target_col = target_col[:-1]
         if type(fill_nan) is list and len(fill_nan) != len(target_col):
             raise ValueError("length of fill_nan must be equal to target_col's")
         for i, col in enumerate(target_col):
