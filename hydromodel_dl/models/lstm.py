@@ -60,3 +60,24 @@ class MultiLSTM(nn.Module):
             lstm_out = dropout_layer(lstm_out)
 
         return self.linearOut(lstm_out)
+
+
+class LinearSimpleLSTM(SimpleLSTM):
+    def __init__(self, linear_size, **kwargs):
+        super(LinearSimpleLSTM, self).__init__(**kwargs)
+        self.former_linear = nn.Linear(linear_size, kwargs["input_size"])
+
+    def forward(self, x):
+        x0 = F.relu(self.former_linear(x))
+        return super(LinearSimpleLSTM, self).forward(x0)
+    
+    
+class SimpleLSTMLinear(SimpleLSTM):
+    def __init__(self, final_linear_size, **kwargs):
+        super(SimpleLSTMLinear, self).__init__(**kwargs)
+        self.final_linear = nn.Linear(kwargs["output_size"], final_linear_size)
+
+    def forward(self, x):
+        x = super(SimpleLSTMLinear, self).forward(x)
+        x = self.final_linear(x)
+        return x

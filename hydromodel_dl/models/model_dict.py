@@ -1,5 +1,5 @@
 from torch.optim import Adam
-from hydromodel_dl.models.lstm import SimpleLSTM, MultiLSTM
+from hydromodel_dl.models.lstm import SimpleLSTM, MultiLSTM, LinearSimpleLSTM
 from hydromodel_dl.models.dpl4hbv import DplLstmHbv
 from hydromodel_dl.models.dpl4xaj import DplLstmXaj
 from hydromodel_dl.models.crits import (
@@ -15,6 +15,7 @@ from hydromodel_dl.models.crits import (
 pytorch_model_dict = {
     "SimpleLSTM": SimpleLSTM,
     "MultiLSTM": MultiLSTM,
+    "LinearSimpleLSTM": LinearSimpleLSTM,
     "DplLstmHbv": DplLstmHbv,
     "DplLstmXaj": DplLstmXaj,
 }

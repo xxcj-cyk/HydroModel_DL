@@ -49,13 +49,13 @@ class TrainLogger:
             if the_logger_file is not None:
                 with open(the_logger_file, "r") as f:
                     logs = json.load(f)
-            start_epoch = self.training_cfgs["start_epoch"]
-            # read the logs before start_epoch and load them to session_params, train_time, epoch_loss
-            for log in logs["run"]:
-                if log["epoch"] < start_epoch:
-                    self.session_params.append(log)
-                    self.train_time.append(log["train_time"])
-                    self.epoch_loss.append(float(log["train_loss"]))
+                start_epoch = self.training_cfgs["start_epoch"]
+                # read the logs before start_epoch and load them to session_params, train_time, epoch_loss
+                for log in logs["run"]:
+                    if log["epoch"] < start_epoch:
+                        self.session_params.append(log)
+                        self.train_time.append(log["train_time"])
+                        self.epoch_loss.append(float(log["train_loss"]))
 
     def save_session_param(
         self, epoch, total_loss, n_iter_ep, valid_loss=None, valid_metrics=None

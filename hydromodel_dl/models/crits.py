@@ -205,6 +205,49 @@ class RMSEFloodLoss(torch.nn.Module):
         return base_loss_func(predictions, targets)
 
 
+class PESFloodEvent(torch.nn.Module):
+    def __init__(self):
+        """
+        PES Flood Event Loss: PES loss with flood event filtering
+
+        Applies PES loss (MSE × sigmoid(MSE)) with flood event filtering.
+        This class filters flood events first then calculates PES loss,
+        focusing computation only on flood periods.
+
+        The difference from standard PES loss is that this class filters flood events first,
+        because PES does sigmoid on MSE, when we want to focus only on flood events,
+        we need to filter them out first before applying the PES calculation.
+        """
+        super(PESFloodEvent, self).__init__()
+
+    def forward(
+        self, predictions: torch.Tensor, targets: torch.Tensor, flood_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute flood-aware PES loss.
+
+        Parameters
+        ----------
+        predictions : torch.Tensor
+            Model predictions [batch_size, seq_len, output_features]
+        targets : torch.Tensor
+            Target values [batch_size, seq_len, output_features]
+        flood_mask : torch.Tensor
+            Flood mask [batch_size, seq_len, 1] (1 for flood, 0 for normal)
+
+        Returns
+        -------
+        torch.Tensor
+            Computed PES loss value
+        """
+        boolean_mask = flood_mask.to(torch.bool)
+        predictions = predictions[boolean_mask]
+        targets = targets[boolean_mask]
+
+        base_loss_func = PESLoss()
+        return base_loss_func(predictions, targets)
+
+
 class HybridFloodLoss(torch.nn.Module):
     def __init__(self, mae_weight=0.5):
         """
@@ -253,3 +296,39 @@ class HybridFloodLoss(torch.nn.Module):
 
         base_loss_func = HybridLoss(self.mae_weight)
         return base_loss_func(predictions, targets)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
