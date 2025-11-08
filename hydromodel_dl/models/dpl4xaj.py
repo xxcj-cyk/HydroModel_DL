@@ -18,10 +18,10 @@ def calculate_evap(
     """
     Three-layers evaporation model from "Watershed Hydrologic Simulation" written by Prof. RenJun Zhao.
 
-    The book is Chinese, and its real name is 《流域水文模拟》;
-    The three-layers evaporation model is descibed in Page 76;
+    The book is in Chinese, and its real name is "Watershed Hydrologic Simulation" (《流域水文模拟》);
+    The three-layers evaporation model is described in Page 76;
     The method is same with that in Page 22-23 in "Hydrologic Forecasting (5-th version)" written by Prof. Weimin Bao.
-    This book's Chinese name is 《水文预报》
+    This book's Chinese name is "Hydrologic Forecasting" (《水文预报》)
 
     Parameters
     ----------
@@ -277,7 +277,7 @@ def xaj_sources(
     Divide the runoff to different sources
 
     We use the initial version from the paper of the inventor of the XAJ model -- Prof. Renjun Zhao:
-    "Analysis of parameters of the XinAnJiang model". Its Chinese name is <<新安江模型参数的分析>>,
+    "Analysis of parameters of the XinAnJiang model". Its Chinese name is "Analysis of Parameters of the XinAnJiang Model" (《新安江模型参数的分析》),
     which could be found by searching in "Baidu Xueshu".
     The module's code can also be found in "Watershed Hydrologic Simulation" (WHS) Page 174.
     It is nearly same with that in "Hydrologic Forecasting" (HF) Page 148-149
@@ -318,7 +318,7 @@ def xaj_sources(
         s0 = 0.5 * (sm.clone().detach())
     # For free water storage, because s is related to fr and s0 and fr0 are both values of last period,
     # we have to trans the initial value of s from last period to this one.
-    # both WHS（流域水文模拟）'s sample code and HF（水文预报） use s = fr0 * s0 / fr.
+    # both WHS (Watershed Hydrologic Simulation)《流域水文模拟》's sample code and HF (Hydrologic Forecasting)《水文预报》 use s = fr0 * s0 / fr.
     # I think they both think free water reservoir as a cubic tank. Its height is s and area of bottom rectangle is fr
     # we will have a cubic tank with varying bottom and height,
     # and fixed boundary (in HF sm is fixed) or none-fixed boundary (in EH smmf is not fixed)
@@ -455,7 +455,7 @@ def xaj_sources5mm(
     book="HF",
 ):
     """
-    Divide the runoff to different sources according to books -- 《水文预报》HF 5th edition and 《工程水文学》EH 3rd edition
+    Divide the runoff to different sources according to books -- "Hydrologic Forecasting" (《水文预报》) HF 5th edition and "Engineering Hydrology" (《工程水文学》) EH 3rd edition
 
     Parameters
     ----------
@@ -476,11 +476,11 @@ def xaj_sources5mm(
     fr0
         initial area of generation
     time_interval_hours
-        由于Ki、Kg、Ci、Cg都是以24小时为时段长定义的,需根据时段长转换
+        Since Ki, Kg, Ci, and Cg are all defined with 24 hours as the time period, they need to be converted according to the time period length
     book
-        the methods in 《水文预报》HF 5th edition and 《工程水文学》EH 3rd edition are different,
-        hence, both are provided, and the default is the former -- "ShuiWenYuBao";
-        the other one is "GongChengShuiWenXue"
+        the methods in "Hydrologic Forecasting" (《水文预报》) HF 5th edition and "Engineering Hydrology" (《工程水文学》) EH 3rd edition are different,
+        hence, both are provided, and the default is the former -- "HF";
+        the other one is "EH"
 
     Returns
     -------
@@ -490,7 +490,7 @@ def xaj_sources5mm(
         all variables are numpy array
     """
     xaj_device = pe.device
-    # 流域最大点自由水蓄水容量深
+    # Maximum point free water storage capacity depth in the watershed
     smm = sm * (1 + ex)
     if fr0 is None:
         fr0 = torch.full_like(sm, 0.1, device=xaj_device)
@@ -617,7 +617,7 @@ def xaj_sources5mm(
         rs = rs + rs_j
         rss = rss + rss_j
         rg = rg + rg_j
-        # 赋值s_d和fr_d到数组中，以给下一段做初值
+        # Assign s_d and fr_d to arrays as initial values for the next period
         s_ds.append(s1_d)
         fr_ds.append(fr_d)
 

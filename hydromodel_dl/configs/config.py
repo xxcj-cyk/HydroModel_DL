@@ -23,7 +23,7 @@ ET_ERA5LAND_NAME = "total_evaporation"
 PRCP_ERA5LAND_NAME = "total_precipitation"
 PET_DAYMET_NAME = "PET"
 PET_ERA5LAND_NAME = "potential_evaporation"
-DATE_FORMATS = ["%Y-%m-%d-%H", "%Y-%m-%d"]  # 带小时的日期格式  # 不带小时的日期格式
+DATE_FORMATS = ["%Y-%m-%d-%H", "%Y-%m-%d"]  # Date format with hour  # Date format without hour
 
 
 def default_config_file():

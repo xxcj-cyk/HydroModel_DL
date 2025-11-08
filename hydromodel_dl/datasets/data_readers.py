@@ -102,7 +102,7 @@ class ReadDatasets(ABC):
         pre_mm_syr = self.read_attr_xrdataset(gage_id_lst, ["p_mean"])
         da = pre_mm_syr["p_mean"]
         
-        # 单位转换
+        # Unit conversion
         unit_conversions = {
             "mm/d": 365, "mm/day": 365,
             "mm/h": 8760, "mm/hour": 8760,

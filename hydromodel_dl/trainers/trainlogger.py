@@ -11,6 +11,40 @@ from torch.utils.tensorboard import SummaryWriter
 from hydromodel_dl.trainers.train_utils import get_lastest_logger_file_in_a_dir
 
 
+def _make_json_serializable(obj):
+    """
+    Convert numpy arrays, PyTorch tensors and other non-JSON-serializable objects to JSON-serializable format
+    
+    Parameters
+    ----------
+    obj : any
+        Object to convert
+        
+    Returns
+    -------
+    any
+        JSON-serializable version of the object
+    """
+    import numpy as np
+    import torch
+    
+    if isinstance(obj, torch.Tensor):
+        # Convert PyTorch tensor to numpy array first, then to list
+        return obj.detach().cpu().numpy().tolist()
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {key: _make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    else:
+        return obj
+
+
 def save_model(model, model_file, gpu_num=1):
     try:
         if torch.cuda.device_count() > 1 and gpu_num > 1:
@@ -40,6 +74,11 @@ class TrainLogger:
         self.train_time = []
         # log loss for each epoch
         self.epoch_loss = []
+        # XAJ parameters tracking
+        self.xaj_params_history = []
+        self.best_xaj_params = None
+        self.best_loss = float('inf')
+        self.best_epoch = 0
         # reload previous logs if continue_train is True and weight_path is not None
         if (
             self.model_cfgs["continue_train"]
@@ -58,7 +97,7 @@ class TrainLogger:
                         self.epoch_loss.append(float(log["train_loss"]))
 
     def save_session_param(
-        self, epoch, total_loss, n_iter_ep, valid_loss=None, valid_metrics=None
+        self, epoch, total_loss, n_iter_ep, valid_loss=None, valid_metrics=None, xaj_params=None
     ):
         if valid_loss is None or valid_metrics is None:
             epoch_params = {
@@ -74,8 +113,50 @@ class TrainLogger:
                 "validation_metric": valid_metrics,
                 "iter_num": n_iter_ep,
             }
+            
         epoch_params["train_time"] = self.train_time[epoch - 1]
         self.session_params.append(epoch_params)
+        
+        # Save XAJ parameters separately if provided
+        if xaj_params is not None:
+            self.save_xaj_params(epoch, total_loss, valid_loss, xaj_params)
+
+    def save_xaj_params(self, epoch, train_loss, valid_loss, xaj_params):
+        """
+        Save XAJ parameters separately from training logs
+        
+        Parameters
+        ----------
+        epoch : int
+            Current epoch number
+        train_loss : float
+            Training loss for this epoch
+        valid_loss : float or None
+            Validation loss for this epoch
+        xaj_params : dict
+            XAJ parameters dictionary
+        """
+        # Ensure all values are JSON serializable
+        serialized_params = _make_json_serializable(xaj_params)
+        
+        # Create parameter record
+        param_record = {
+            "epoch": int(epoch),
+            "train_loss": float(train_loss),
+            "validation_loss": float(valid_loss) if valid_loss is not None else None,
+            "parameters": serialized_params
+        }
+        
+        # Add to history
+        self.xaj_params_history.append(param_record)
+        
+        # Check if this is the best epoch (lowest validation loss)
+        current_loss = valid_loss if valid_loss is not None else train_loss
+        if current_loss < self.best_loss:
+            self.best_loss = current_loss
+            self.best_epoch = epoch
+            self.best_xaj_params = param_record.copy()
+            print(f"New best parameters found at epoch {epoch} with loss {current_loss:.6f}")
 
     @contextmanager
     def log_epoch_train(self, epoch):
@@ -152,12 +233,76 @@ class TrainLogger:
         # In final epoch, we save the model and params in test_path
         final_path = params["data_cfgs"]["test_path"]
         params["run"] = self.session_params
+        
+        # Make sure all parameters are JSON serializable
+        params_serializable = _make_json_serializable(params)
+        
         time_stamp = datetime.now().strftime("%d_%B_%Y%I_%M%p")
         model_save_path = os.path.join(final_path, f"{time_stamp}_model.pth")
         save_model(model, model_save_path)
-        save_model_params_log(params, final_path)
+        save_model_params_log(params_serializable, final_path)
         # also save one for a training directory for one hyperparameter setting
-        save_model_params_log(params, self.training_save_dir)
+        save_model_params_log(params_serializable, self.training_save_dir)
+        
+        # Save XAJ parameters separately
+        self._save_xaj_params_files(final_path, time_stamp)
+
+    def _save_xaj_params_files(self, final_path, time_stamp):
+        """
+        Save XAJ parameters to separate JSON files
+        
+        Parameters
+        ----------
+        final_path : str
+            Path where to save the files
+        time_stamp : str
+            Timestamp for file naming
+        """
+        if not self.xaj_params_history:
+            print("No XAJ parameters to save")
+            return
+            
+        # Save parameter history (all epochs)
+        history_file = os.path.join(final_path, f"{time_stamp}_xaj_params_history.json")
+        history_data = {
+            "summary": {
+                "total_epochs": len(self.xaj_params_history),
+                "best_epoch": int(self.best_epoch),
+                "best_loss": float(self.best_loss),
+                "parameter_names": list(self.xaj_params_history[0]["parameters"].keys()) if self.xaj_params_history else []
+            },
+            "history": _make_json_serializable(self.xaj_params_history)
+        }
+        
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(history_data, f, indent=2, ensure_ascii=False)
+        print(f"XAJ parameters history saved to: {history_file}")
+        
+        # Save best parameters
+        if self.best_xaj_params is not None:
+            best_file = os.path.join(final_path, f"{time_stamp}_xaj_params_best.json")
+            best_data = {
+                "summary": {
+                    "best_epoch": int(self.best_epoch),
+                    "best_loss": float(self.best_loss),
+                    "parameter_names": list(self.best_xaj_params["parameters"].keys())
+                },
+                "best_parameters": _make_json_serializable(self.best_xaj_params)
+            }
+            
+            with open(best_file, 'w', encoding='utf-8') as f:
+                json.dump(best_data, f, indent=2, ensure_ascii=False)
+            print(f"Best XAJ parameters saved to: {best_file}")
+        
+        # Also save copies in training directory
+        training_history_file = os.path.join(self.training_save_dir, f"{time_stamp}_xaj_params_history.json")
+        with open(training_history_file, 'w', encoding='utf-8') as f:
+            json.dump(history_data, f, indent=2, ensure_ascii=False)
+            
+        if self.best_xaj_params is not None:
+            training_best_file = os.path.join(self.training_save_dir, f"{time_stamp}_xaj_params_best.json")
+            with open(training_best_file, 'w', encoding='utf-8') as f:
+                json.dump(best_data, f, indent=2, ensure_ascii=False)
 
     def plot_hist_img(self, model, global_step):
         for tag, parm in model.named_parameters():

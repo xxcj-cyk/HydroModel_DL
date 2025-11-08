@@ -23,7 +23,82 @@ from hydrodatautils.foundation.hydro_format import unserialize_json
 from hydromodel_dl.models.crits import GaussianLoss, RMSEFloodLoss, HybridFloodLoss
 
 
-def model_infer(seq_first, device, model, xs, ys):
+def _extract_xaj_params(model, xs, device):
+    """
+    Extract XAJ parameters from DplLstmXaj model
+    
+    Parameters
+    ----------
+    model : DplLstmXaj
+        The DplLstmXaj model
+    xs : list or tensor
+        Input data
+    device : torch.device
+        Device where tensors are located
+        
+    Returns
+    -------
+    dict
+        Dictionary containing XAJ parameter names and their denormalized values
+    """
+    import torch.nn.functional as F
+    
+    # Get the normalized input (z) - assuming it's the second input for DplLstmXaj
+    if len(xs) >= 2:
+        z = xs[1]  # normalized input for DL model
+    else:
+        # If only one input, use it as both x and z
+        z = xs[0]
+    
+    # Generate parameters using LSTM
+    gen = model.dl_model(z)
+    
+    # Apply parameter limiting function
+    if model.param_func == "sigmoid":
+        params_ = F.sigmoid(gen)
+    elif model.param_func == "clamp":
+        params_ = torch.clamp(gen, min=0.0, max=1.0)
+    else:
+        raise NotImplementedError(f"Parameter function {model.param_func} not supported")
+    
+    # Get final time step parameters
+    params = params_[-1, :, :]  # [batch_size, n_params]
+    
+    # Denormalize parameters using the same logic as in Xaj4Dpl.forward()
+    pb_model = model.pb_model
+    denormalized_params = {}
+    
+    # Extract each parameter and denormalize
+    param_names = pb_model.params_names
+    param_scales = {
+        'K': pb_model.k_scale,
+        'B': pb_model.b_scale,
+        'IM': pb_model.im_sacle,
+        'UM': pb_model.um_scale,
+        'LM': pb_model.lm_scale,
+        'DM': pb_model.dm_scale,
+        'C': pb_model.c_scale,
+        'SM': pb_model.sm_scale,
+        'EX': pb_model.ex_scale,
+        'KI': pb_model.ki_scale,
+        'KG': pb_model.kg_scale,
+        'A': pb_model.a_scale,
+        'THETA': pb_model.theta_scale,
+        'CI': pb_model.ci_scale,
+        'CG': pb_model.cg_scale,
+    }
+    
+    for i, param_name in enumerate(param_names):
+        if param_name in param_scales:
+            scale = param_scales[param_name]
+            denormalized_value = scale[0] + params[:, i] * (scale[1] - scale[0])
+            # Convert to Python list for JSON serialization
+            denormalized_params[param_name] = denormalized_value.detach().cpu().numpy().tolist()
+    
+    return denormalized_params
+
+
+def model_infer(seq_first, device, model, xs, ys, return_xaj_params=False):
     """_summary_
 
     Parameters
@@ -38,11 +113,14 @@ def model_infer(seq_first, device, model, xs, ys):
         xs is always batch first
     ys : tensor
         observed data
+    return_xaj_params : bool
+        if True and model is DplLstmXaj, also return XAJ parameters
 
     Returns
     -------
-    tuple[torch.Tensor, torch.Tensor]
+    tuple[torch.Tensor, torch.Tensor] or tuple[torch.Tensor, torch.Tensor, dict]
         first is the observed data, second is the predicted data;
+        if return_xaj_params=True and model is DplLstmXaj, third is dict of XAJ parameters;
         both tensors are batch first
     """
     if type(xs) is list:
@@ -71,10 +149,21 @@ def model_infer(seq_first, device, model, xs, ys):
     if type(output) is tuple:
         # Convention: y_p must be the first output of model
         output = output[0]
+    
+    # Check if we need to extract XAJ parameters for DplLstmXaj model
+    xaj_params = None
+    if return_xaj_params and hasattr(model, 'pb_model') and hasattr(model.pb_model, 'params_names'):
+        # This is a DplLstmXaj model, extract the current XAJ parameters
+        xaj_params = _extract_xaj_params(model, xs, device)
+    
     if seq_first:
         output = output.transpose(0, 1)
         ys = ys.transpose(0, 1)
-    return ys, output
+    
+    if xaj_params is not None:
+        return ys, output, xaj_params
+    else:
+        return ys, output
 
 
 def denormalize4eval(eval_dataloader, output, labels, rolling=False):
@@ -654,6 +743,7 @@ def read_torchhydro_log_json_file(cfg_dir):
             fnmatch.fnmatch(file, "*.json")
             and "_stat" not in file  # statistics json file
             and "_dict" not in file  # data cache json file
+            and "_xaj_params" not in file  # XAJ parameters json file
         ):
             json_files_lst.append(os.path.join(cfg_dir, file))
             json_files_ctime.append(os.path.getctime(os.path.join(cfg_dir, file)))

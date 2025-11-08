@@ -31,7 +31,7 @@ class MultiLSTM(nn.Module):
             dr = [dr] * len(hidden_sizes)
         assert len(dr) == len(
             hidden_sizes
-        ), f"dr长度({len(dr)})必须与hidden_sizes长度({len(hidden_sizes)})相同"
+        ), f"dr length ({len(dr)}) must be equal to hidden_sizes length ({len(hidden_sizes)})"
         self.lstm_layers = nn.ModuleList()
         self.dropout_layers = nn.ModuleList()
         for i in range(len(hidden_sizes)):

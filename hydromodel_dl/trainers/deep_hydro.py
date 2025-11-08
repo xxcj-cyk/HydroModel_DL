@@ -251,8 +251,36 @@ class DeepHydro(DeepHydroInterface):
                     )
 
             self._scheduler_step(training_cfgs, scheduler, valid_loss)
+            
+            # Extract XAJ parameters if model is DplLstmXaj
+            xaj_params = None
+            if hasattr(self.model, 'pb_model') and hasattr(self.model.pb_model, 'params_names'):
+                # This is a DplLstmXaj model, extract parameters from a sample batch
+                try:
+                    # Get a sample batch to extract parameters
+                    sample_batch = next(iter(data_loader))
+                    if isinstance(sample_batch, (list, tuple)) and len(sample_batch) >= 2:
+                        sample_src, sample_trg = sample_batch
+                        # Use model_infer with return_xaj_params=True
+                        from hydromodel_dl.trainers.train_utils import model_infer
+                        seq_first = training_cfgs["which_first_tensor"] != "batch"
+                        result = model_infer(seq_first, self.device, self.model, sample_src, sample_trg, return_xaj_params=True)
+                        if len(result) == 3:  # Contains XAJ parameters
+                            _, _, xaj_params_raw = result
+                            # Aggregate parameters by taking mean across batch (to match validation metrics structure)
+                            xaj_params = {}
+                            for param_name, param_values in xaj_params_raw.items():
+                                if isinstance(param_values, list) and len(param_values) > 0:
+                                    # Take mean across batch dimension to get one value per parameter
+                                    xaj_params[param_name] = [sum(param_values) / len(param_values)]
+                                else:
+                                    xaj_params[param_name] = param_values
+                except Exception as e:
+                    print(f"Warning: Could not extract XAJ parameters: {e}")
+                    xaj_params = None
+            
             logger.save_session_param(
-                epoch, total_loss, n_iter_ep, valid_loss, valid_metrics
+                epoch, total_loss, n_iter_ep, valid_loss, valid_metrics, xaj_params
             )
             logger.save_model_and_params(self.model, epoch, self.cfgs)
             if es and not es.check_loss(
@@ -355,12 +383,23 @@ class DeepHydro(DeepHydroInterface):
         # here the batch is just an index of lookup table, so any batch size could be chosen
         test_preds = []
         obss = []
+        
+        # Extract XAJ parameters during inference if model is DplLstmXaj
+        xaj_params_collected = []
+        
         with torch.no_grad():
             for xs, ys in test_dataloader:
                 # here the a batch doesn't mean a basin; it is only an index in lookup table
                 # for NtoN mode, only basin is index in lookup table, so the batch is same as basin
                 # for Nto1 mode, batch is only an index
-                ys, pred = model_infer(seq_first, device, self.model, xs, ys)
+                result = model_infer(seq_first, device, self.model, xs, ys, return_xaj_params=True)
+                
+                if len(result) == 3:  # Contains XAJ parameters
+                    ys, pred, xaj_params = result
+                    xaj_params_collected.append(xaj_params)
+                else:
+                    ys, pred = result
+                
                 test_preds.append(pred.cpu().numpy())
                 obss.append(ys.cpu().numpy())
             pred = reduce(lambda x, y: np.vstack((x, y)), test_preds)
@@ -414,7 +453,72 @@ class DeepHydro(DeepHydroInterface):
         pred_xr, obs_xr = denormalize4eval(
             test_dataloader, pred, obs, rolling=evaluation_cfgs["rolling"]
         )
+        
+        # Save XAJ parameters if collected during inference
+        if xaj_params_collected and hasattr(self.model, 'pb_model') and hasattr(self.model.pb_model, 'params_names'):
+            self._save_inference_xaj_params(xaj_params_collected)
+        
         return pred_xr, obs_xr
+
+    def _save_inference_xaj_params(self, xaj_params_collected):
+        """
+        Save XAJ parameters collected during inference
+        
+        Parameters
+        ----------
+        xaj_params_collected : list
+            List of XAJ parameters dictionaries collected from each batch
+        """
+        from datetime import datetime
+        import json
+        import os
+        from hydromodel_dl.trainers.trainlogger import _make_json_serializable
+        
+        # Get save path
+        test_path = self.cfgs["data_cfgs"]["test_path"]
+        timestamp = datetime.now().strftime("%d_%B_%Y%I_%M%p")
+        
+        # Aggregate parameters from all batches
+        aggregated_params = {}
+        param_names = list(xaj_params_collected[0].keys()) if xaj_params_collected else []
+        
+        for param_name in param_names:
+            all_values = []
+            for batch_params in xaj_params_collected:
+                if param_name in batch_params:
+                    param_values = batch_params[param_name]
+                    if isinstance(param_values, list):
+                        all_values.extend(param_values)
+                    else:
+                        all_values.append(param_values)
+            
+            # Take mean across all collected values
+            if all_values:
+                aggregated_params[param_name] = [sum(all_values) / len(all_values)]
+        
+        # Create inference parameter record
+        inference_record = {
+            "inference_mode": True,
+            "timestamp": timestamp,
+            "total_batches": len(xaj_params_collected),
+            "parameters": _make_json_serializable(aggregated_params)
+        }
+        
+        # Save inference parameters
+        inference_file = os.path.join(test_path, f"{timestamp}_xaj_params_inference.json")
+        inference_data = {
+            "summary": {
+                "mode": "inference",
+                "timestamp": timestamp,
+                "total_batches": len(xaj_params_collected),
+                "parameter_names": param_names
+            },
+            "inference_parameters": inference_record
+        }
+        
+        with open(inference_file, 'w', encoding='utf-8') as f:
+            json.dump(inference_data, f, indent=2, ensure_ascii=False)
+        print(f"XAJ parameters from inference saved to: {inference_file}")
 
     def _get_optimizer(self, training_cfgs):
         params_in_opt = self.model.parameters()
