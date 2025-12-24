@@ -20,7 +20,14 @@ from hydrodatautils.foundation.hydro_model import (
     get_latest_file_in_a_lst,
 )
 from hydrodatautils.foundation.hydro_format import unserialize_json
-from hydromodel_dl.models.crits import GaussianLoss, RMSEFloodLoss, HybridFloodLoss
+from hydromodel_dl.models.crits import (
+    GaussianLoss,
+    RMSEFloodLoss,
+    HybridFloodLoss,
+    PeakFocusedLoss,
+    PeakFocusedFloodLoss,
+    PeakAreaFloodLoss,
+)
 
 
 def _extract_xaj_params(model, xs, device):
@@ -469,7 +476,9 @@ def compute_loss(
             labels = labels.unsqueeze(2)
         else:
             labels = labels.unsqueeze(0)
-    if isinstance(criterion, (RMSEFloodLoss, HybridFloodLoss)):
+    if isinstance(
+        criterion, (RMSEFloodLoss, HybridFloodLoss, PeakFocusedFloodLoss, PeakAreaFloodLoss)
+    ):
         # labels has one more column than output, which is the flood mask
         # so we need to remove the last column of labels to get targets
         flood_mask = labels[:, :, -1:]  # Extract flood mask from last column

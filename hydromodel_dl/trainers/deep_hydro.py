@@ -289,6 +289,8 @@ class DeepHydro(DeepHydroInterface):
                 self.cfgs["data_cfgs"]["test_path"],
             ):
                 print("Stopping model now")
+                # Save training logs when early stopping occurs
+                logger.save_training_logs(self.cfgs, self.model)
                 break
         # logger.plot_model_structure(self.model)
         logger.tb.close()

@@ -10,6 +10,9 @@ from hydromodel_dl.models.crits import (
     HybridLoss,
     RMSEFloodLoss,
     HybridFloodLoss,
+    PeakFocusedLoss,
+    PeakFocusedFloodLoss,
+    PeakAreaFloodLoss,
 )
 
 pytorch_model_dict = {
@@ -30,4 +33,7 @@ pytorch_criterion_dict = {
     "Hybrid": HybridLoss,
     "RMSEFlood": RMSEFloodLoss,
     "HybridFlood": HybridFloodLoss,
+    "PeakFocused": PeakFocusedLoss,
+    "PeakFocusedFlood": PeakFocusedFloodLoss,
+    "PeakAreaFlood": PeakAreaFloodLoss,
 }

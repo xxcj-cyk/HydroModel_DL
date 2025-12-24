@@ -1,0 +1,71 @@
+[
+    {
+        "name": "Exp-01-RMSEFlood-baseline",
+        "loss_func": "RMSEFlood",
+        "loss_param": {},
+        "description": "基准实验：只对洪水期间计算RMSE"
+    },
+    {
+        "name": "Exp-02-HybridFlood-mae05",
+        "loss_func": "HybridFlood",
+        "loss_param": {"mae_weight": 0.5},
+        "description": "PES + MAE混合损失（MAE权重0.5）"
+    },
+    {
+        "name": "Exp-03-HybridFlood-mae10",
+        "loss_func": "HybridFlood",
+        "loss_param": {"mae_weight": 1.0},
+        "description": "PES + MAE混合损失（MAE权重1.0）"
+    },
+    {
+        "name": "Exp-04-PeakFocused-balanced",
+        "loss_func": "PeakFocusedFlood",
+        "loss_param": {
+            "peak_weight": 1.0,
+            "time_weight": 1.0,
+            "overall_weight": 0.5
+        },
+        "description": "PeakFocusedFlood平衡权重"
+    },
+    {
+        "name": "Exp-05-PeakFocused-default",
+        "loss_func": "PeakFocusedFlood",
+        "loss_param": {
+            "peak_weight": 2.0,
+            "time_weight": 1.0,
+            "overall_weight": 0.5
+        },
+        "description": "PeakFocusedFlood默认参数（更关注洪峰）"
+    },
+    {
+        "name": "Exp-06-PeakFocused-peak3",
+        "loss_func": "PeakFocusedFlood",
+        "loss_param": {
+            "peak_weight": 3.0,
+            "time_weight": 1.0,
+            "overall_weight": 0.3
+        },
+        "description": "PeakFocusedFlood更强调洪峰"
+    },
+    {
+        "name": "Exp-07-PeakFocused-time2",
+        "loss_func": "PeakFocusedFlood",
+        "loss_param": {
+            "peak_weight": 1.0,
+            "time_weight": 2.0,
+            "overall_weight": 0.5
+        },
+        "description": "PeakFocusedFlood更关注峰现时间"
+    },
+    {
+        "name": "Exp-08-PeakFocused-peak2time2",
+        "loss_func": "PeakFocusedFlood",
+        "loss_param": {
+            "peak_weight": 2.0,
+            "time_weight": 2.0,
+            "overall_weight": 0.3
+        },
+        "description": "PeakFocusedFlood同时强调洪峰和时间"
+    }
+]
+

@@ -229,8 +229,18 @@ class TrainLogger:
         if epoch == final_epoch:
             self._save_final_epoch(params, model)
 
-    def _save_final_epoch(self, params, model):
-        # In final epoch, we save the model and params in test_path
+    def save_training_logs(self, params, model):
+        """
+        Save training logs to JSON files. This method can be called when early stopping occurs
+        or at the final epoch.
+        
+        Parameters
+        ----------
+        params : dict
+            Configuration parameters
+        model : torch.nn.Module
+            The trained model
+        """
         final_path = params["data_cfgs"]["test_path"]
         params["run"] = self.session_params
         
@@ -244,8 +254,14 @@ class TrainLogger:
         # also save one for a training directory for one hyperparameter setting
         save_model_params_log(params_serializable, self.training_save_dir)
         
-        # Save XAJ parameters separately
-        self._save_xaj_params_files(final_path, time_stamp)
+        # Save XAJ parameters separately only if model is XAJ model (e.g., DplLstmXaj)
+        # Check if model has pb_model attribute which indicates it's an XAJ model
+        if hasattr(model, 'pb_model') and hasattr(model.pb_model, 'params_names'):
+            self._save_xaj_params_files(final_path, time_stamp)
+
+    def _save_final_epoch(self, params, model):
+        # In final epoch, we save the model and params in test_path
+        self.save_training_logs(params, model)
 
     def _save_xaj_params_files(self, final_path, time_stamp):
         """
@@ -258,21 +274,30 @@ class TrainLogger:
         time_stamp : str
             Timestamp for file naming
         """
-        if not self.xaj_params_history:
-            print("No XAJ parameters to save")
-            return
-            
         # Save parameter history (all epochs)
+        # Even if history is empty, save an empty file to indicate training completed
         history_file = os.path.join(final_path, f"{time_stamp}_xaj_params_history.json")
-        history_data = {
-            "summary": {
-                "total_epochs": len(self.xaj_params_history),
-                "best_epoch": int(self.best_epoch),
-                "best_loss": float(self.best_loss),
-                "parameter_names": list(self.xaj_params_history[0]["parameters"].keys()) if self.xaj_params_history else []
-            },
-            "history": _make_json_serializable(self.xaj_params_history)
-        }
+        if self.xaj_params_history:
+            history_data = {
+                "summary": {
+                    "total_epochs": len(self.xaj_params_history),
+                    "best_epoch": int(self.best_epoch) if self.best_epoch > 0 else None,
+                    "best_loss": float(self.best_loss) if self.best_loss != float('inf') else None,
+                    "parameter_names": list(self.xaj_params_history[0]["parameters"].keys()) if self.xaj_params_history else []
+                },
+                "history": _make_json_serializable(self.xaj_params_history)
+            }
+        else:
+            print("Warning: No XAJ parameters history found, saving empty history file")
+            history_data = {
+                "summary": {
+                    "total_epochs": 0,
+                    "best_epoch": None,
+                    "best_loss": None,
+                    "parameter_names": []
+                },
+                "history": []
+            }
         
         with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history_data, f, indent=2, ensure_ascii=False)
@@ -293,6 +318,8 @@ class TrainLogger:
             with open(best_file, 'w', encoding='utf-8') as f:
                 json.dump(best_data, f, indent=2, ensure_ascii=False)
             print(f"Best XAJ parameters saved to: {best_file}")
+        else:
+            print("Warning: No best XAJ parameters found (best_xaj_params is None)")
         
         # Also save copies in training directory
         training_history_file = os.path.join(self.training_save_dir, f"{time_stamp}_xaj_params_history.json")
