@@ -22,11 +22,10 @@ from hydrodatautils.foundation.hydro_model import (
 from hydrodatautils.foundation.hydro_format import unserialize_json
 from hydromodel_dl.models.crits import (
     GaussianLoss,
-    RMSEFloodLoss,
-    HybridFloodLoss,
-    PeakFocusedLoss,
-    PeakFocusedFloodLoss,
-    PeakAreaFloodLoss,
+    RMSEFloodSampleLoss,
+    RMSEFloodEventLoss,
+    PeakFocusedFloodSampleLoss,
+    PeakFocusedFloodEventLoss,
 )
 
 
@@ -477,13 +476,26 @@ def compute_loss(
         else:
             labels = labels.unsqueeze(0)
     if isinstance(
-        criterion, (RMSEFloodLoss, HybridFloodLoss, PeakFocusedFloodLoss, PeakAreaFloodLoss)
+        criterion, (RMSEFloodSampleLoss, PeakFocusedFloodSampleLoss)
     ):
         # labels has one more column than output, which is the flood mask
         # so we need to remove the last column of labels to get targets
         flood_mask = labels[:, :, -1:]  # Extract flood mask from last column
         targets = labels[:, :, :-1]  # Extract targets (remove last column)
         return criterion(output, targets, flood_mask)
+    if isinstance(criterion, (PeakFocusedFloodEventLoss, RMSEFloodEventLoss)):
+        # For PeakFocusedFloodEventLoss and RMSEFloodEventLoss, we need event_ids
+        # labels has one more column than output, which is the flood mask
+        flood_mask = labels[:, :, -1:]  # Extract flood mask from last column
+        targets = labels[:, :, :-1]  # Extract targets (remove last column)
+        # Get event_ids from kwargs
+        event_ids = kwargs.get("event_ids", None)
+        if event_ids is None:
+            raise ValueError(
+                f"{criterion.__class__.__name__} requires event_ids in kwargs. "
+                "Please ensure the dataset returns event_ids and they are passed to compute_loss."
+            )
+        return criterion(output, targets, flood_mask, event_ids)
     if (
         isinstance(output, torch.Tensor)
         and len(labels.shape) != len(output.shape)
@@ -539,9 +551,20 @@ def torch_single_train(
     seq_first = which_first_tensor != "batch"
     pbar = tqdm(data_loader)
 
-    for _, (src, trg) in enumerate(pbar):
+    for _, batch_data in enumerate(pbar):
+        # Handle different data formats: (src, trg) or (src, trg, event_ids)
+        if len(batch_data) == 3:
+            src, trg, event_ids = batch_data
+        else:
+            src, trg = batch_data
+            event_ids = None
+        
         trg, output = model_infer(seq_first, device, model, src, trg)
 
+        # Pass event_ids to compute_loss if available
+        if event_ids is not None:
+            kwargs["event_ids"] = event_ids
+        
         loss = compute_loss(trg, output, criterion, **kwargs)
         if loss > 100:
             print("Warning: high loss detected")
@@ -594,8 +617,23 @@ def compute_validation(
     seq_first = kwargs["which_first_tensor"] != "batch"
     obs = []
     preds = []
+    all_event_ids = []
     with torch.no_grad():
-        for src, trg in data_loader:
+        for batch_data in data_loader:
+            # Handle different data formats: (src, trg) or (src, trg, event_ids)
+            if len(batch_data) == 3:
+                src, trg, event_ids = batch_data
+                if event_ids is not None:
+                    # event_ids might be a list or tensor, convert to list
+                    if isinstance(event_ids, (list, tuple)):
+                        all_event_ids.extend(event_ids)
+                    else:
+                        # If it's a tensor, convert to list
+                        all_event_ids.extend(event_ids.tolist() if hasattr(event_ids, 'tolist') else [event_ids])
+            else:
+                src, trg = batch_data
+                event_ids = None
+            
             trg, output = model_infer(seq_first, device, model, src, trg)
             obs.append(trg)
             preds.append(output)
@@ -603,7 +641,11 @@ def compute_validation(
         obs_final = torch.cat(obs, dim=0)
         pred_final = torch.cat(preds, dim=0)
 
-        valid_loss = compute_loss(obs_final, pred_final, criterion)
+        # Pass event_ids to compute_loss if available
+        if len(all_event_ids) > 0 and len(all_event_ids) == obs_final.shape[0]:
+            kwargs["event_ids"] = all_event_ids
+        
+        valid_loss = compute_loss(obs_final, pred_final, criterion, **kwargs)
     y_obs = obs_final.detach().cpu().numpy()
     y_pred = pred_final.detach().cpu().numpy()
     return y_obs, y_pred, valid_loss
@@ -852,7 +894,12 @@ def _recover_samples_to_basin(arr_3d, valorte_data_loader, pace_idx):
 
     for sample_idx in range(arr_3d.shape[0]):
         # Get the basin and start time index corresponding to this sample
-        basin, start_time, _ = dataset.lookup_table[sample_idx]
+        # Handle both old format (3 values) and new format (4 values with event_id)
+        lookup_entry = dataset.lookup_table[sample_idx]
+        if len(lookup_entry) == 4:
+            basin, start_time, _, _ = lookup_entry  # Ignore event_id and actual_length
+        else:
+            basin, start_time, _ = lookup_entry
         # Calculate the time position in the result array
         if pace_idx < 0:
             value = arr_3d[sample_idx, pace_idx, :]

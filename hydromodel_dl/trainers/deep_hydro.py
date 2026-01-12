@@ -390,7 +390,13 @@ class DeepHydro(DeepHydroInterface):
         xaj_params_collected = []
         
         with torch.no_grad():
-            for xs, ys in test_dataloader:
+            for batch_data in test_dataloader:
+                # Handle different data formats: (xs, ys) or (xs, ys, event_ids)
+                if len(batch_data) == 3:
+                    xs, ys, event_ids = batch_data
+                else:
+                    xs, ys = batch_data
+                
                 # here the a batch doesn't mean a basin; it is only an index in lookup table
                 # for NtoN mode, only basin is index in lookup table, so the batch is same as basin
                 # for Nto1 mode, batch is only an index

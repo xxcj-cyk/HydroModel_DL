@@ -647,7 +647,9 @@ class FloodEventDataset(LongTermDataset):
                     if (
                         actual_length >= self.rho + self.horizon
                     ):  # At least need rho + horizon
-                        lookup.append((basin_idx, actual_start, actual_length))
+                        # Get basin ID (event ID) for this sample
+                        basin_id = self.basins[basin_idx] if hasattr(self, 'basins') else str(basin_idx)
+                        lookup.append((basin_idx, actual_start, actual_length, basin_id))
 
     def _find_valid_data_range(
         self, basin_idx, window_start, window_end, flood_start, flood_end
@@ -760,8 +762,16 @@ class FloodEventDataset(LongTermDataset):
         Returns samples with:
         1. Variable length sequences (no padding)
         2. Flood mask for weighted loss computation
+        3. Event ID (basin ID) for grouping samples by flood event
         """
-        basin, start_idx, actual_length = self.lookup_table[item]
+        lookup_entry = self.lookup_table[item]
+        if len(lookup_entry) == 4:
+            basin, start_idx, actual_length, event_id = lookup_entry
+        else:
+            # Backward compatibility: if no event_id, use basin index as event_id
+            basin, start_idx, actual_length = lookup_entry
+            event_id = self.basins[basin] if hasattr(self, 'basins') else str(basin)
+        
         warmup_length = self.warmup_length
         end_idx = start_idx + actual_length
 
@@ -781,6 +791,7 @@ class FloodEventDataset(LongTermDataset):
             return (
                 torch.from_numpy(x).float(),
                 torch.from_numpy(y_with_flood_mask).float(),
+                event_id,  # Return event_id for grouping
             )
 
         # Add constant features to input
@@ -788,7 +799,7 @@ class FloodEventDataset(LongTermDataset):
         c = np.repeat(c, x.shape[0], axis=0).reshape(c.shape[0], -1).T
         xc = np.concatenate((x, c), axis=1)
 
-        return torch.from_numpy(xc).float(), torch.from_numpy(y_with_flood_mask).float()
+        return torch.from_numpy(xc).float(), torch.from_numpy(y_with_flood_mask).float(), event_id
 
 
 class FloodEventDplDataset(FloodEventDataset):
@@ -846,11 +857,22 @@ class FloodEventDplDataset(FloodEventDataset):
             - z_train: torch.Tensor, normalized data for DL model
             - y_train: torch.Tensor, not normalized output data with flood mask
         """
-        basin, start_idx, actual_length = self.lookup_table[item]
+        lookup_entry = self.lookup_table[item]
+        if len(lookup_entry) == 4:
+            basin, start_idx, actual_length, event_id = lookup_entry
+        else:
+            # Backward compatibility
+            basin, start_idx, actual_length = lookup_entry
+            event_id = self.basins[basin] if hasattr(self, 'basins') else str(basin)
+        
         end_idx = start_idx + actual_length
         warmup_length = self.warmup_length
         # Get normalized data first (using parent's logic for flood mask)
-        xc_norm, y_norm_with_mask = super(FloodEventDplDataset, self).__getitem__(item)
+        parent_result = super(FloodEventDplDataset, self).__getitem__(item)
+        if len(parent_result) == 3:
+            xc_norm, y_norm_with_mask, event_id = parent_result
+        else:
+            xc_norm, y_norm_with_mask = parent_result
 
         # Get original (not normalized) data
         x_origin = self.x_origin[basin, start_idx:end_idx, :]
@@ -894,4 +916,4 @@ class FloodEventDplDataset(FloodEventDataset):
         # y_train is the original output data with flood mask
         y_train = torch.from_numpy(y_origin_with_mask).float()
 
-        return (x_train, z_train), y_train
+        return (x_train, z_train), y_train, event_id
