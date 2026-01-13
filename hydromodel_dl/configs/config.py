@@ -235,6 +235,9 @@ def default_config_file():
             # Then we need retrain the model with saved weights, and the start_epoch is not 1 yet.
             "start_epoch": 1,
             "batch_size": 100,
+            # extract_xaj_params: if True, extract and save XAJ parameters for DplLstmXaj models
+            # Parameters will be grouped by basin and saved in history and best files
+            "extract_xaj_params": False,
             "device": [0, 1, 2],
             "multi_targets": 1,
             "num_workers": 0,
@@ -325,6 +328,7 @@ def cmd(
     train_epoch=None,
     save_epoch=None,
     save_iter=None,
+    extract_xaj_params=None,
     model_type=None,
     model_name=None,
     weight_path=None,
@@ -494,6 +498,13 @@ def cmd(
         dest="save_iter",
         help="save for every save_iter in save_epoches",
         default=save_iter,
+        type=int,
+    )
+    parser.add_argument(
+        "--extract_xaj_params",
+        dest="extract_xaj_params",
+        help="if 1, extract and save XAJ parameters (only for DplLstmXaj); 0 means disable",
+        default=extract_xaj_params,
         type=int,
     )
     parser.add_argument(
@@ -1007,6 +1018,9 @@ def update_cfg(cfg_file, new_args):
         cfg_file["training_cfgs"]["save_epoch"] = new_args.save_epoch
     if new_args.save_iter is not None:
         cfg_file["training_cfgs"]["save_iter"] = new_args.save_iter
+    if hasattr(new_args, "extract_xaj_params") and new_args.extract_xaj_params is not None:
+        # 0/1 int -> bool
+        cfg_file["training_cfgs"]["extract_xaj_params"] = bool(new_args.extract_xaj_params)
     if new_args.model_type is not None:
         cfg_file["model_cfgs"]["model_type"] = new_args.model_type
     if new_args.model_name is not None:

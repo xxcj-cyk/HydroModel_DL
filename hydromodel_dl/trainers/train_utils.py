@@ -104,6 +104,95 @@ def _extract_xaj_params(model, xs, device):
     return denormalized_params
 
 
+def _extract_xaj_params_by_basin(model, data_loader, device, seq_first):
+    """
+    Extract XAJ parameters from DplLstmXaj model, grouped by basin
+    
+    This function traverses all batches in the data loader and groups parameters by basin.
+    Each basin's parameters are averaged across all samples from that basin.
+    
+    Parameters
+    ----------
+    model : DplLstmXaj
+        The DplLstmXaj model
+    data_loader : DataLoader
+        Data loader to iterate through
+    device : torch.device
+        Device where tensors are located
+    seq_first : bool
+        Whether input data is sequence-first format
+        
+    Returns
+    -------
+    dict
+        Dictionary with basin IDs as keys and parameter dictionaries as values
+        Format: {basin_id: {param_name: [value], ...}, ...}
+    """
+    from collections import defaultdict
+    import torch.nn.functional as F
+    
+    # Group parameters by basin
+    params_by_basin = defaultdict(lambda: defaultdict(list))
+    
+    # Set model to eval mode and disable gradient computation
+    model.eval()
+    with torch.no_grad():
+        for batch_data in data_loader:
+            # Handle different data formats: (src, trg) or (src, trg, event_ids)
+            if len(batch_data) == 3:
+                src, trg, event_ids = batch_data
+            else:
+                src, trg = batch_data
+                event_ids = None
+            
+            # Skip if no event_ids (basin IDs)
+            if event_ids is None:
+                continue
+            
+            # Prepare inputs
+            if isinstance(src, (list, tuple)) and len(src) >= 2:
+                sample_src = src
+            else:
+                sample_src = [src]
+            
+            # Convert event_ids to list if needed
+            if isinstance(event_ids, torch.Tensor):
+                event_ids = event_ids.tolist()
+            elif not isinstance(event_ids, list):
+                event_ids = list(event_ids)
+            
+            # Extract parameters for this batch
+            try:
+                result = model_infer(seq_first, device, model, sample_src, trg, return_xaj_params=True)
+                if len(result) == 3:
+                    _, _, xaj_params_raw = result
+                    
+                    # Group parameters by basin
+                    for i, basin_id in enumerate(event_ids):
+                        basin_id_str = str(basin_id)
+                        for param_name, param_values in xaj_params_raw.items():
+                            if isinstance(param_values, list) and i < len(param_values):
+                                params_by_basin[basin_id_str][param_name].append(param_values[i])
+            except Exception as e:
+                print(f"Warning: Could not extract XAJ parameters from batch: {e}")
+                continue
+    
+    # Average parameters for each basin
+    params_by_basin_averaged = {}
+    for basin_id, param_dict in params_by_basin.items():
+        params_by_basin_averaged[basin_id] = {}
+        for param_name, param_values in param_dict.items():
+            if param_values:
+                # Calculate mean across all samples from this basin
+                params_by_basin_averaged[basin_id][param_name] = [
+                    sum(param_values) / len(param_values)
+                ]
+            else:
+                params_by_basin_averaged[basin_id][param_name] = []
+    
+    return params_by_basin_averaged
+
+
 def model_infer(seq_first, device, model, xs, ys, return_xaj_params=False):
     """_summary_
 

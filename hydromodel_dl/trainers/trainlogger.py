@@ -134,7 +134,9 @@ class TrainLogger:
         valid_loss : float or None
             Validation loss for this epoch
         xaj_params : dict
-            XAJ parameters dictionary
+            XAJ parameters dictionary, can be either:
+            - Old format: {param_name: [value], ...} (single set of parameters)
+            - New format: {basin_id: {param_name: [value], ...}, ...} (parameters by basin)
         """
         # Ensure all values are JSON serializable
         serialized_params = _make_json_serializable(xaj_params)
@@ -278,12 +280,27 @@ class TrainLogger:
         # Even if history is empty, save an empty file to indicate training completed
         history_file = os.path.join(final_path, f"{time_stamp}_xaj_params_history.json")
         if self.xaj_params_history:
+            # Determine parameter names from first epoch
+            first_params = self.xaj_params_history[0]["parameters"]
+            param_names = []
+            if isinstance(first_params, dict) and first_params:
+                # Check if it's the new format (by basin) or old format
+                first_value = list(first_params.values())[0]
+                if isinstance(first_value, dict):
+                    # New format: {basin_id: {param_name: [value], ...}, ...}
+                    # Get parameter names from first basin
+                    first_basin = list(first_params.keys())[0]
+                    param_names = list(first_params[first_basin].keys())
+                else:
+                    # Old format: {param_name: [value], ...}
+                    param_names = list(first_params.keys())
+            
             history_data = {
                 "summary": {
                     "total_epochs": len(self.xaj_params_history),
                     "best_epoch": int(self.best_epoch) if self.best_epoch > 0 else None,
                     "best_loss": float(self.best_loss) if self.best_loss != float('inf') else None,
-                    "parameter_names": list(self.xaj_params_history[0]["parameters"].keys()) if self.xaj_params_history else []
+                    "parameter_names": param_names
                 },
                 "history": _make_json_serializable(self.xaj_params_history)
             }
@@ -306,11 +323,25 @@ class TrainLogger:
         # Save best parameters
         if self.best_xaj_params is not None:
             best_file = os.path.join(final_path, f"{time_stamp}_xaj_params_best.json")
+            # Determine parameter names from best parameters
+            best_params = self.best_xaj_params["parameters"]
+            param_names = []
+            if isinstance(best_params, dict) and best_params:
+                # Check if it's the new format (by basin) or old format
+                first_value = list(best_params.values())[0]
+                if isinstance(first_value, dict):
+                    # New format: {basin_id: {param_name: [value], ...}, ...}
+                    first_basin = list(best_params.keys())[0]
+                    param_names = list(best_params[first_basin].keys())
+                else:
+                    # Old format: {param_name: [value], ...}
+                    param_names = list(best_params.keys())
+            
             best_data = {
                 "summary": {
                     "best_epoch": int(self.best_epoch),
                     "best_loss": float(self.best_loss),
-                    "parameter_names": list(self.best_xaj_params["parameters"].keys())
+                    "parameter_names": param_names
                 },
                 "best_parameters": _make_json_serializable(self.best_xaj_params)
             }
