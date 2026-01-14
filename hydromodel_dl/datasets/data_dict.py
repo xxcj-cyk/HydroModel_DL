@@ -40,6 +40,7 @@ if DATASETS_DIR_CAMELS:
 if DATASETS_DIR_CHINA:
     datasets_dirction_dict.update({
         "Anhui_1H": DATASETS_DIR_CHINA.get("Anhui_1H", {}).get("EXPORT_DIR"),
+        "Anhui16_612_1H": DATASETS_DIR_CHINA.get("Anhui16_612_1H", {}).get("EXPORT_DIR"),
     })
 
 datasets_dirction_dict = {k: v for k, v in datasets_dirction_dict.items() if v is not None}

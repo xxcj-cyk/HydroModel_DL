@@ -280,9 +280,15 @@ class DeepHydro(DeepHydroInterface):
                 print("Stopping model now")
                 # Save training logs when early stopping occurs
                 logger.save_training_logs(self.cfgs, self.model)
+                # Save best model after early stopping
+                es.save_model_checkpoint(self.cfgs["data_cfgs"]["test_path"])
                 break
         # logger.plot_model_structure(self.model)
         logger.tb.close()
+
+        # Save best model after training completes (if early stopping was used)
+        if es is not None:
+            es.save_model_checkpoint(self.cfgs["data_cfgs"]["test_path"])
 
         # return the trained model weights and bias and the epoch loss
         return self.model.state_dict(), sum(logger.epoch_loss) / len(logger.epoch_loss)
