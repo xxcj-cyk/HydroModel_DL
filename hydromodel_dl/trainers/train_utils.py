@@ -12,7 +12,7 @@ import numpy as np
 import xarray as xr
 import torch
 import torch.optim as optim
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 
 from hydrodatautils.foundation.hydro_statistic import statistic_nd_error
@@ -673,7 +673,7 @@ def torch_single_train(
         
         # Forward pass with autocast if using AMP
         if use_amp and scaler is not None:
-            with autocast():
+            with autocast('cuda'):
                 trg, output = model_infer(seq_first, device, model, src, trg)
                 # Pass event_ids to compute_loss if available
                 if event_ids is not None:
@@ -766,7 +766,7 @@ def compute_validation(
             
             # Use autocast for validation if AMP is enabled
             if use_amp:
-                with autocast():
+                with autocast('cuda'):
                     trg, output = model_infer(seq_first, device, model, src, trg)
             else:
                 trg, output = model_infer(seq_first, device, model, src, trg)

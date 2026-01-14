@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
 
@@ -135,7 +135,7 @@ class DeepHydro(DeepHydroInterface):
                 self.use_amp = False
                 self.scaler = None
             else:
-                self.scaler = GradScaler()
+                self.scaler = GradScaler('cuda')
                 print("AMP (Automatic Mixed Precision) training enabled")
         else:
             self.scaler = None
