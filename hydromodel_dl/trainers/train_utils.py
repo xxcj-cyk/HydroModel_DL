@@ -362,13 +362,11 @@ class EarlyStopper(object):
         self.cumulative_delta = cumulative_delta
         self.counter = 0
         self.best_score = None
-        self.best_model_state = None  # Store best model state in memory
 
     def check_loss(self, model, validation_loss, save_dir) -> bool:
         score = validation_loss
         if self.best_score is None:
-            # Store model state in memory, but don't save to file yet
-            self.best_model_state = self._get_model_state(model)
+            self.save_model_checkpoint(model, save_dir)
             self.best_score = score
 
         elif score + self.min_delta >= self.best_score:
@@ -377,28 +375,14 @@ class EarlyStopper(object):
             if self.counter >= self.patience:
                 return False
         else:
-            # Store model state in memory, but don't save to file yet
-            self.best_model_state = self._get_model_state(model)
+            self.save_model_checkpoint(model, save_dir)
             print("Model Update")
             self.best_score = score
             self.counter = 0
         return True
 
-    def _get_model_state(self, model):
-        """Get model state dict, handling DataParallel models"""
-        if hasattr(model, 'module'):
-            # Handle DataParallel models
-            return model.module.state_dict()
-        else:
-            return model.state_dict()
-
-    def save_model_checkpoint(self, save_dir):
-        """Save the best model to file. Call this after training completes."""
-        if self.best_model_state is not None:
-            torch.save(self.best_model_state, os.path.join(save_dir, "best_model.pth"))
-            print(f"Best model saved to {os.path.join(save_dir, 'best_model.pth')}")
-        else:
-            print("Warning: No best model state to save")
+    def save_model_checkpoint(self, model, save_dir):
+        torch.save(model.state_dict(), os.path.join(save_dir, "best_model.pth"))
 
 
 def calculate_and_record_metrics(
