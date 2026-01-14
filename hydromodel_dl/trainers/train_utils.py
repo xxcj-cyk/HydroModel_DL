@@ -190,7 +190,18 @@ def _extract_xaj_params_by_basin(model, data_loader, device, seq_first):
             else:
                 params_by_basin_averaged[basin_id][param_name] = []
     
-    return params_by_basin_averaged
+    # Sort basins by ID before returning
+    def _basin_sort_key(basin_id):
+        """Sort key for basin IDs - handles both numeric and string IDs"""
+        try:
+            # Try to convert to int for numeric sorting
+            return (0, int(basin_id))
+        except (ValueError, TypeError):
+            # If not numeric, sort as string
+            return (1, str(basin_id))
+    
+    sorted_basin_ids = sorted(params_by_basin_averaged.keys(), key=_basin_sort_key)
+    return {basin_id: params_by_basin_averaged[basin_id] for basin_id in sorted_basin_ids}
 
 
 def model_infer(seq_first, device, model, xs, ys, return_xaj_params=False):

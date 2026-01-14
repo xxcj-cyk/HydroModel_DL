@@ -45,6 +45,46 @@ def _make_json_serializable(obj):
         return obj
 
 
+def _sort_basins_in_params(params):
+    """
+    Sort basins in parameters dictionary by basin ID
+    
+    Parameters
+    ----------
+    params : dict
+        Parameters dictionary, can be either:
+        - Old format: {param_name: [value], ...} (single set of parameters)
+        - New format: {basin_id: {param_name: [value], ...}, ...} (parameters by basin)
+        
+    Returns
+    -------
+    dict
+        Parameters dictionary with sorted basins (if new format)
+    """
+    if not isinstance(params, dict) or not params:
+        return params
+    
+    # Check if it's the new format (by basin) or old format
+    first_value = list(params.values())[0]
+    if isinstance(first_value, dict):
+        # New format: {basin_id: {param_name: [value], ...}, ...}
+        # Sort basin IDs intelligently (handle numeric strings)
+        def _basin_sort_key(basin_id):
+            """Sort key for basin IDs - handles both numeric and string IDs"""
+            try:
+                # Try to convert to int for numeric sorting
+                return (0, int(basin_id))
+            except (ValueError, TypeError):
+                # If not numeric, sort as string
+                return (1, str(basin_id))
+        
+        sorted_basin_ids = sorted(params.keys(), key=_basin_sort_key)
+        return {basin_id: params[basin_id] for basin_id in sorted_basin_ids}
+    else:
+        # Old format: {param_name: [value], ...}
+        return params
+
+
 def save_model(model, model_file, gpu_num=1):
     try:
         if torch.cuda.device_count() > 1 and gpu_num > 1:
@@ -138,8 +178,11 @@ class TrainLogger:
             - Old format: {param_name: [value], ...} (single set of parameters)
             - New format: {basin_id: {param_name: [value], ...}, ...} (parameters by basin)
         """
+        # Sort basins in parameters before serialization
+        sorted_params = _sort_basins_in_params(xaj_params)
+        
         # Ensure all values are JSON serializable
-        serialized_params = _make_json_serializable(xaj_params)
+        serialized_params = _make_json_serializable(sorted_params)
         
         # Create parameter record
         param_record = {
@@ -280,8 +323,15 @@ class TrainLogger:
         # Even if history is empty, save an empty file to indicate training completed
         history_file = os.path.join(final_path, f"{time_stamp}_xaj_params_history.json")
         if self.xaj_params_history:
+            # Sort basins in all history records
+            sorted_history = []
+            for record in self.xaj_params_history:
+                sorted_record = record.copy()
+                sorted_record["parameters"] = _sort_basins_in_params(record["parameters"])
+                sorted_history.append(sorted_record)
+            
             # Determine parameter names from first epoch
-            first_params = self.xaj_params_history[0]["parameters"]
+            first_params = sorted_history[0]["parameters"]
             param_names = []
             if isinstance(first_params, dict) and first_params:
                 # Check if it's the new format (by basin) or old format
@@ -297,12 +347,12 @@ class TrainLogger:
             
             history_data = {
                 "summary": {
-                    "total_epochs": len(self.xaj_params_history),
+                    "total_epochs": len(sorted_history),
                     "best_epoch": int(self.best_epoch) if self.best_epoch > 0 else None,
                     "best_loss": float(self.best_loss) if self.best_loss != float('inf') else None,
                     "parameter_names": param_names
                 },
-                "history": _make_json_serializable(self.xaj_params_history)
+                "history": _make_json_serializable(sorted_history)
             }
         else:
             print("Warning: No XAJ parameters history found, saving empty history file")
@@ -323,19 +373,22 @@ class TrainLogger:
         # Save best parameters
         if self.best_xaj_params is not None:
             best_file = os.path.join(final_path, f"{time_stamp}_xaj_params_best.json")
+            # Sort basins in best parameters
+            best_params_sorted = _sort_basins_in_params(self.best_xaj_params["parameters"])
+            best_params_serialized = _make_json_serializable(best_params_sorted)
+            
             # Determine parameter names from best parameters
-            best_params = self.best_xaj_params["parameters"]
             param_names = []
-            if isinstance(best_params, dict) and best_params:
+            if isinstance(best_params_sorted, dict) and best_params_sorted:
                 # Check if it's the new format (by basin) or old format
-                first_value = list(best_params.values())[0]
+                first_value = list(best_params_sorted.values())[0]
                 if isinstance(first_value, dict):
                     # New format: {basin_id: {param_name: [value], ...}, ...}
-                    first_basin = list(best_params.keys())[0]
-                    param_names = list(best_params[first_basin].keys())
+                    first_basin = list(best_params_sorted.keys())[0]
+                    param_names = list(best_params_sorted[first_basin].keys())
                 else:
                     # Old format: {param_name: [value], ...}
-                    param_names = list(best_params.keys())
+                    param_names = list(best_params_sorted.keys())
             
             best_data = {
                 "summary": {
@@ -343,7 +396,12 @@ class TrainLogger:
                     "best_loss": float(self.best_loss),
                     "parameter_names": param_names
                 },
-                "best_parameters": _make_json_serializable(self.best_xaj_params)
+                "best_parameters": {
+                    "epoch": int(self.best_xaj_params["epoch"]),
+                    "train_loss": float(self.best_xaj_params["train_loss"]),
+                    "validation_loss": float(self.best_xaj_params["validation_loss"]) if self.best_xaj_params["validation_loss"] is not None else None,
+                    "parameters": best_params_serialized
+                }
             }
             
             with open(best_file, 'w', encoding='utf-8') as f:
