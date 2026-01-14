@@ -382,7 +382,9 @@ class EarlyStopper(object):
         return True
 
     def save_model_checkpoint(self, model, save_dir):
-        torch.save(model.state_dict(), os.path.join(save_dir, "best_model.pth"))
+        # Don't save best_model.pth during training, only record the best epoch
+        # The best_model.pth will be generated after training ends based on training logs
+        pass
 
 
 def calculate_and_record_metrics(
