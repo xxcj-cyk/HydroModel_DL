@@ -41,6 +41,9 @@ if DATASETS_DIR_CHINA:
     datasets_dirction_dict.update({
         "Anhui_1H": DATASETS_DIR_CHINA.get("Anhui_1H", {}).get("EXPORT_DIR"),
         "Anhui16_612_1H": DATASETS_DIR_CHINA.get("Anhui16_612_1H", {}).get("EXPORT_DIR"),
+        "Anhui16_612_1H_v2": DATASETS_DIR_CHINA.get("Anhui16_612_1H_v2", {}).get("EXPORT_DIR"),
+        "Anhui16_612_1H_v3": DATASETS_DIR_CHINA.get("Anhui16_612_1H_v3", {}).get("EXPORT_DIR"),
+        "Anhui16_612_1H_v4": DATASETS_DIR_CHINA.get("Anhui16_612_1H_v4", {}).get("EXPORT_DIR"),
     })
 
 datasets_dirction_dict = {k: v for k, v in datasets_dirction_dict.items() if v is not None}

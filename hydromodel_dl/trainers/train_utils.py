@@ -12,6 +12,7 @@ import numpy as np
 import xarray as xr
 import torch
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 
 from hydrodatautils.foundation.hydro_statistic import statistic_nd_error
@@ -617,6 +618,8 @@ def torch_single_train(
     criterion,
     data_loader: DataLoader,
     device=None,
+    scaler=None,
+    use_amp=False,
     **kwargs,
 ) -> float:
     """
@@ -634,6 +637,10 @@ def torch_single_train(
         object for loading data to the model
     device
         where we put the tensors and models
+    scaler
+        GradScaler for mixed precision training (required if use_amp=True)
+    use_amp
+        whether to use Automatic Mixed Precision training
 
     Returns
     -------
@@ -661,20 +668,38 @@ def torch_single_train(
             src, trg = batch_data
             event_ids = None
         
-        trg, output = model_infer(seq_first, device, model, src, trg)
-
-        # Pass event_ids to compute_loss if available
-        if event_ids is not None:
-            kwargs["event_ids"] = event_ids
+        # Zero gradients
+        opt.zero_grad()
         
-        loss = compute_loss(trg, output, criterion, **kwargs)
+        # Forward pass with autocast if using AMP
+        if use_amp and scaler is not None:
+            with autocast():
+                trg, output = model_infer(seq_first, device, model, src, trg)
+                # Pass event_ids to compute_loss if available
+                if event_ids is not None:
+                    kwargs["event_ids"] = event_ids
+                loss = compute_loss(trg, output, criterion, **kwargs)
+        else:
+            trg, output = model_infer(seq_first, device, model, src, trg)
+            # Pass event_ids to compute_loss if available
+            if event_ids is not None:
+                kwargs["event_ids"] = event_ids
+            loss = compute_loss(trg, output, criterion, **kwargs)
+        
         if loss > 100:
             print("Warning: high loss detected")
         if torch.isnan(loss):
             continue
-        loss.backward()  # Backpropagate to compute the current gradient
-        opt.step()  # Update network parameters based on gradients
-        model.zero_grad()  # clear gradient
+        
+        # Backward pass with scaler if using AMP
+        if use_amp and scaler is not None:
+            scaler.scale(loss).backward()  # Scale loss and backpropagate
+            scaler.step(opt)  # Update parameters (scaler handles unscale)
+            scaler.update()  # Update scaler for next iteration
+        else:
+            loss.backward()  # Backpropagate to compute the current gradient
+            opt.step()  # Update network parameters based on gradients
+        
         if loss == float("inf"):
             raise ValueError(
                 "Error infinite loss detected. Try normalizing data or performing interpolation"
@@ -694,6 +719,7 @@ def compute_validation(
     criterion,
     data_loader: DataLoader,
     device: torch.device = None,
+    use_amp=False,
     **kwargs,
 ) -> float:
     """
@@ -709,6 +735,8 @@ def compute_validation(
         The data-loader of either validation or test-data
     device
         torch.device
+    use_amp
+        whether to use Automatic Mixed Precision for validation (can speed up inference)
 
     Returns
     -------
@@ -736,7 +764,12 @@ def compute_validation(
                 src, trg = batch_data
                 event_ids = None
             
-            trg, output = model_infer(seq_first, device, model, src, trg)
+            # Use autocast for validation if AMP is enabled
+            if use_amp:
+                with autocast():
+                    trg, output = model_infer(seq_first, device, model, src, trg)
+            else:
+                trg, output = model_infer(seq_first, device, model, src, trg)
             obs.append(trg)
             preds.append(output)
         # first dim is batch
