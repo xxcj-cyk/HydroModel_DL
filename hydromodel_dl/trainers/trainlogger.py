@@ -230,8 +230,30 @@ class TrainLogger:
         valid_loss = logs["valid_loss"]
         if self.evaluation_cfgs["calc_metrics"]:
             valid_metrics = logs["valid_metrics"]
+            # Format metrics for display, with special handling for PTE (1 decimal place)
+            formatted_metrics = {}
+            for key, values in valid_metrics.items():
+                if values and len(values) > 0:
+                    # Filter out NaN values for mean calculation
+                    valid_values = [v for v in values if not (isinstance(v, float) and np.isnan(v))]
+                    if valid_values:
+                        mean_val = np.mean(valid_values)
+                        if "PTE" in key:
+                            formatted_metrics[key] = f"{mean_val:.2f}"
+                        elif "PFE" in key:
+                            formatted_metrics[key] = f"{mean_val:.3f}"
+                        elif "RMSE" in key or "HighRMSE" in key:
+                            formatted_metrics[key] = f"{mean_val:.4f}"
+                        elif "NSE" in key or "KGE" in key or "Corr" in key or "R2" in key:
+                            formatted_metrics[key] = f"{mean_val:.4f}"
+                        else:
+                            formatted_metrics[key] = f"{mean_val:.4f}"
+                    else:
+                        formatted_metrics[key] = "N/A"
+                else:
+                    formatted_metrics[key] = "N/A"
             val_log = "Epoch {} Valid Loss {:.4f} Valid Metric {}".format(
-                epoch, valid_loss, valid_metrics
+                epoch, valid_loss, formatted_metrics
             )
             print(val_log)
             self.tb.add_scalar("ValidLoss", valid_loss, epoch)

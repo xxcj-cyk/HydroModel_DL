@@ -16,9 +16,53 @@ class SimpleLSTM(nn.Module):
         self.linearOut = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
+        # 插入 print 8：检查输入
+        print(f"DEBUG SimpleLSTM.forward: input x shape: {x.shape}")
+        print(f"  x has NaN: {torch.isnan(x).any()}, range: [{x.min():.4f}, {x.max():.4f}]")
+        
+        # 检查 linearIn 权重
+        if torch.isnan(self.linearIn.weight).any():
+            print(f"  ❌ NaN in linearIn.weight!")
+        if self.linearIn.bias is not None and torch.isnan(self.linearIn.bias).any():
+            print(f"  ❌ NaN in linearIn.bias!")
+        
         x0 = F.relu(self.linearIn(x))
+        
+        # 插入 print 9：检查 linearIn 输出
+        print(f"DEBUG: After linearIn, x0 shape: {x0.shape}")
+        print(f"  x0 has NaN: {torch.isnan(x0).any()}, range: [{x0.min():.4f}, {x0.max():.4f}]")
+        
+        # 检查 LSTM 权重
+        for name, param in self.lstm.named_parameters():
+            if torch.isnan(param).any():
+                print(f"  ❌ NaN in LSTM.{name}!")
+        
         out_lstm, (hn, cn) = self.lstm(x0)
-        return self.linearOut(out_lstm)
+        
+        # 插入 print 10：检查 LSTM 输出和状态
+        print(f"DEBUG: After LSTM")
+        print(f"  out_lstm shape: {out_lstm.shape}, has NaN: {torch.isnan(out_lstm).any()}")
+        print(f"  hn shape: {hn.shape}, has NaN: {torch.isnan(hn).any()}")
+        print(f"  cn shape: {cn.shape}, has NaN: {torch.isnan(cn).any()}")
+        if torch.isnan(out_lstm).any():
+            print(f"  ❌❌❌ NaN in LSTM output! ❌❌❌")
+            print(f"    out_lstm range: [{out_lstm.min():.4f}, {out_lstm.max():.4f}]")
+            print(f"    hn range: [{hn.min():.4f}, {hn.max():.4f}]")
+            print(f"    cn range: [{cn.min():.4f}, {cn.max():.4f}]")
+        
+        # 检查 linearOut 权重
+        if torch.isnan(self.linearOut.weight).any():
+            print(f"  ❌ NaN in linearOut.weight!")
+        if self.linearOut.bias is not None and torch.isnan(self.linearOut.bias).any():
+            print(f"  ❌ NaN in linearOut.bias!")
+        
+        result = self.linearOut(out_lstm)
+        
+        # 插入 print 11：检查最终输出
+        print(f"DEBUG: After linearOut, result shape: {result.shape}")
+        print(f"  result has NaN: {torch.isnan(result).any()}, range: [{result.min():.4f}, {result.max():.4f}]")
+        
+        return result
 
 
 class MultiLSTM(nn.Module):

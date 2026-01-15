@@ -30,6 +30,8 @@ from hydromodel_dl.trainers.train_utils import (
     read_pth_from_model_loader,
     torch_single_train,
     _recover_samples_to_basin,
+    start_output_logging,
+    save_output_to_markdown,
 )
 
 
@@ -229,60 +231,75 @@ class DeepHydro(DeepHydroInterface):
             training_cfgs, data_cfgs
         )
         logger = TrainLogger(model_filepath, self.cfgs, opt)
-        for epoch in range(start_epoch, max_epochs + 1):
-            with logger.log_epoch_train(epoch) as train_logs:
-                total_loss, n_iter_ep = torch_single_train(
-                    self.model,
-                    opt,
-                    criterion,
-                    data_loader,
-                    device=self.device,
-                    which_first_tensor=training_cfgs["which_first_tensor"],
+        
+        # 启动输出日志记录（如果配置了 md_file_path）
+        md_file_path = training_cfgs.get("md_file_path", None)
+        if md_file_path is None:
+            # 如果没有指定，使用默认路径：在 model_filepath 目录下创建 training_output.md
+            import os
+            md_file_path = os.path.join(model_filepath, "training_output.md")
+        start_output_logging(md_file_path)
+        
+        try:
+            for epoch in range(start_epoch, max_epochs + 1):
+                with logger.log_epoch_train(epoch) as train_logs:
+                    total_loss, n_iter_ep = torch_single_train(
+                        self.model,
+                        opt,
+                        criterion,
+                        data_loader,
+                        device=self.device,
+                        which_first_tensor=training_cfgs["which_first_tensor"],
+                        md_file_path=md_file_path,
+                    )
+                    train_logs["train_loss"] = total_loss
+                    train_logs["model"] = self.model
+
+                valid_loss = None
+                valid_metrics = None
+                if data_cfgs["t_range_valid"] is not None:
+                    with logger.log_epoch_valid(epoch) as valid_logs:
+                        valid_loss, valid_metrics = self._1epoch_valid(
+                            training_cfgs, criterion, validation_data_loader, valid_logs
+                        )
+
+                self._scheduler_step(training_cfgs, scheduler, valid_loss)
+                
+                # Extract XAJ parameters if model is DplLstmXaj and extraction is enabled
+                xaj_params = None
+                extract_params = training_cfgs.get("extract_xaj_params", False)
+                if extract_params and hasattr(self.model, 'pb_model') and hasattr(self.model.pb_model, 'params_names'):
+                    # This is a DplLstmXaj model, extract parameters grouped by basin
+                    try:
+                        from hydromodel_dl.trainers.train_utils import _extract_xaj_params_by_basin
+                        seq_first = training_cfgs["which_first_tensor"] != "batch"
+                        # Extract parameters from all batches, grouped by basin
+                        xaj_params = _extract_xaj_params_by_basin(
+                            self.model, data_loader, self.device, seq_first
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not extract XAJ parameters: {e}")
+                        xaj_params = None
+                
+                logger.save_session_param(
+                    epoch, total_loss, n_iter_ep, valid_loss, valid_metrics, xaj_params
                 )
-                train_logs["train_loss"] = total_loss
-                train_logs["model"] = self.model
-
-            valid_loss = None
-            valid_metrics = None
-            if data_cfgs["t_range_valid"] is not None:
-                with logger.log_epoch_valid(epoch) as valid_logs:
-                    valid_loss, valid_metrics = self._1epoch_valid(
-                        training_cfgs, criterion, validation_data_loader, valid_logs
-                    )
-
-            self._scheduler_step(training_cfgs, scheduler, valid_loss)
+                logger.save_model_and_params(self.model, epoch, self.cfgs)
+                if es and not es.check_loss(
+                    self.model,
+                    valid_loss,
+                    self.cfgs["data_cfgs"]["test_path"],
+                ):
+                    print("Stopping model now")
+                    # Save training logs when early stopping occurs
+                    logger.save_training_logs(self.cfgs, self.model)
+                    break
+        finally:
+            # logger.plot_model_structure(self.model)
+            logger.tb.close()
             
-            # Extract XAJ parameters if model is DplLstmXaj and extraction is enabled
-            xaj_params = None
-            extract_params = training_cfgs.get("extract_xaj_params", False)
-            if extract_params and hasattr(self.model, 'pb_model') and hasattr(self.model.pb_model, 'params_names'):
-                # This is a DplLstmXaj model, extract parameters grouped by basin
-                try:
-                    from hydromodel_dl.trainers.train_utils import _extract_xaj_params_by_basin
-                    seq_first = training_cfgs["which_first_tensor"] != "batch"
-                    # Extract parameters from all batches, grouped by basin
-                    xaj_params = _extract_xaj_params_by_basin(
-                        self.model, data_loader, self.device, seq_first
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not extract XAJ parameters: {e}")
-                    xaj_params = None
-            
-            logger.save_session_param(
-                epoch, total_loss, n_iter_ep, valid_loss, valid_metrics, xaj_params
-            )
-            logger.save_model_and_params(self.model, epoch, self.cfgs)
-            if es and not es.check_loss(
-                self.model,
-                valid_loss,
-                self.cfgs["data_cfgs"]["test_path"],
-            ):
-                print("Stopping model now")
-                # Save training logs when early stopping occurs
-                logger.save_training_logs(self.cfgs, self.model)
-                break
-        # logger.plot_model_structure(self.model)
-        logger.tb.close()
+            # 最后一步：保存所有输出到 markdown 文件
+            save_output_to_markdown(md_file_path)
 
         # return the trained model weights and bias and the epoch loss
         return self.model.state_dict(), sum(logger.epoch_loss) / len(logger.epoch_loss)

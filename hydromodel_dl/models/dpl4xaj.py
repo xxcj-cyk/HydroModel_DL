@@ -11,6 +11,9 @@ from hydromodel_dl.models.lstm import SimpleLSTM
 
 PRECISION = 1e-5
 
+# 全局变量用于跟踪当前 batch（用于诊断）
+_debug_batch_idx = -1
+
 
 def calculate_evap(
     lm, c, wu0, wl0, prcp, pet
@@ -88,22 +91,117 @@ def calculate_prcp_runoff(b, im, wm, w0, pe):
     torch.Tensor
         r -- runoff; r_im -- runoff of impervious part
     """
+    global _debug_batch_idx
+    debug_mode = _debug_batch_idx == 10  # batch 11 (0-indexed)
+    
+    if debug_mode:
+        print(f"  [XAJ calculate_prcp_runoff] Input check:")
+        print(f"    b range: [{b.min():.6f}, {b.max():.6f}], has NaN: {torch.isnan(b).any()}")
+        print(f"    im range: [{im.min():.6f}, {im.max():.6f}], has NaN: {torch.isnan(im).any()}")
+        print(f"    wm range: [{wm.min():.6f}, {wm.max():.6f}], has NaN: {torch.isnan(wm).any()}")
+        print(f"    w0 range: [{w0.min():.6f}, {w0.max():.6f}], has NaN: {torch.isnan(w0).any()}")
+        print(f"    pe range: [{pe.min():.6f}, {pe.max():.6f}], has NaN: {torch.isnan(pe).any()}")
+        print(f"    w0/wm ratio range: [{(w0/wm).min():.6f}, {(w0/wm).max():.6f}]")
+        print(f"    1 - w0/wm range: [{(1 - w0/wm).min():.6f}, {(1 - w0/wm).max():.6f}]")
+    
     wmm = wm * (1 + b)
-    a = wmm * (1 - (1 - w0 / wm) ** (1 / (1 + b)))
+    if debug_mode:
+        print(f"    wmm = wm * (1+b) range: [{wmm.min():.6f}, {wmm.max():.6f}], has NaN: {torch.isnan(wmm).any()}")
+    
+    # 关键计算：指数运算
+    w0_wm_ratio = w0 / wm
+    one_minus_ratio = 1 - w0_wm_ratio
+    # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+    # 这不会影响前向结果（因为0^power ≈ 0，PRECISION^power也接近0），但能保证梯度稳定
+    exp_base = torch.clamp(one_minus_ratio, min=PRECISION)
+    exp_power = 1 / (1 + b)
+    
+    if debug_mode:
+        print(f"  [XAJ calculate_prcp_runoff] Critical exponent calculation:")
+        print(f"    w0/wm range: [{w0_wm_ratio.min():.6f}, {w0_wm_ratio.max():.6f}]")
+        print(f"    1 - w0/wm range: [{one_minus_ratio.min():.6f}, {one_minus_ratio.max():.6f}]")
+        print(f"    exp_base (clamped) range: [{exp_base.min():.6f}, {exp_base.max():.6f}]")
+        print(f"    exp_power = 1/(1+b) range: [{exp_power.min():.6f}, {exp_power.max():.6f}]")
+        # 检查是否有负值或零值
+        if (one_minus_ratio <= 0).any():
+            neg_count = (one_minus_ratio <= 0).sum().item()
+            print(f"    ⚠️  WARNING: {neg_count} elements have (1 - w0/wm) <= 0, clamped to PRECISION for gradient stability!")
+            print(f"       Negative/zero indices: {torch.where(one_minus_ratio <= 0)[0][:10].tolist()}")
+    
+    exp_result = exp_base ** exp_power
+    if debug_mode:
+        print(f"    (1 - w0/wm)^(1/(1+b)) range: [{exp_result.min():.6f}, {exp_result.max():.6f}], has NaN: {torch.isnan(exp_result).any()}")
+        if torch.isnan(exp_result).any():
+            nan_count = torch.isnan(exp_result).sum().item()
+            nan_indices = torch.where(torch.isnan(exp_result))[0][:5].tolist()
+            print(f"    ❌ NaN in exp_result! {nan_count} NaN elements at indices: {nan_indices}")
+            for idx in nan_indices[:3]:
+                print(f"      idx {idx}: w0={w0[idx]:.6f}, wm={wm[idx]:.6f}, b={b[idx]:.6f}")
+                print(f"        w0/wm={w0_wm_ratio[idx]:.6f}, 1-w0/wm={one_minus_ratio[idx]:.6f}, exp_power={exp_power[idx]:.6f}")
+    
+    a = wmm * (1 - exp_result)
+    if debug_mode:
+        print(f"    a = wmm * (1 - exp_result) range: [{a.min():.6f}, {a.max():.6f}], has NaN: {torch.isnan(a).any()}")
+    
     if any(torch.isnan(a)):
         raise ValueError(
             "Error: NaN values detected. Try set clamp function or check your data!!!"
         )
+    if debug_mode:
+        print(f"  [XAJ calculate_prcp_runoff] Runoff calculation:")
+        print(f"    pe > 0 count: {(pe > 0.0).sum().item()}")
+        print(f"    pe + a < wmm count: {((pe + a) < wmm).sum().item()}")
+    
+    # 关键计算：另一个指数运算
+    clamped_sum = torch.clamp(a + pe, max=wmm)
+    clamped_ratio = clamped_sum / wmm
+    one_minus_clamped = 1 - clamped_ratio
+    # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+    exp_base2 = torch.clamp(one_minus_clamped, min=PRECISION)
+    exp_power2 = 1 + b
+    
+    if debug_mode:
+        print(f"    a + pe range: [{(a + pe).min():.6f}, {(a + pe).max():.6f}]")
+        print(f"    clamped(a + pe, max=wmm) range: [{clamped_sum.min():.6f}, {clamped_sum.max():.6f}]")
+        print(f"    clamped/wmm range: [{clamped_ratio.min():.6f}, {clamped_ratio.max():.6f}]")
+        print(f"    1 - clamped/wmm range: [{one_minus_clamped.min():.6f}, {one_minus_clamped.max():.6f}]")
+        print(f"    exp_base2 (clamped) range: [{exp_base2.min():.6f}, {exp_base2.max():.6f}]")
+        print(f"    exp_power = 1+b range: [{exp_power2.min():.6f}, {exp_power2.max():.6f}]")
+        if (one_minus_clamped <= 0).any():
+            neg_count = (one_minus_clamped <= 0).sum().item()
+            print(f"    ⚠️  WARNING: {neg_count} elements have (1 - clamped/wmm) <= 0, clamped to PRECISION for gradient stability!")
+    
+    exp_result2 = exp_base2 ** exp_power2
+    if debug_mode:
+        print(f"    (1 - clamped/wmm)^(1+b) range: [{exp_result2.min():.6f}, {exp_result2.max():.6f}], has NaN: {torch.isnan(exp_result2).any()}")
+        if torch.isnan(exp_result2).any():
+            nan_count = torch.isnan(exp_result2).sum().item()
+            print(f"    ❌ NaN in exp_result2! {nan_count} NaN elements")
+    
+    inner_calc = pe - (wm - w0) + wm * exp_result2
+    if debug_mode:
+        print(f"    inner_calc = pe - (wm - w0) + wm * exp_result2")
+        print(f"      pe - (wm - w0) range: [{(pe - (wm - w0)).min():.6f}, {(pe - (wm - w0)).max():.6f}]")
+        print(f"      wm * exp_result2 range: [{(wm * exp_result2).min():.6f}, {(wm * exp_result2).max():.6f}]")
+        print(f"      inner_calc range: [{inner_calc.min():.6f}, {inner_calc.max():.6f}], has NaN: {torch.isnan(inner_calc).any()}")
+    
     r_cal = torch.where(
         pe > 0.0,
         torch.where(
             pe + a < wmm,
             # torch.clamp is used for gradient not to be NaN, see more in xaj_sources function
-            pe - (wm - w0) + wm * (1 - torch.clamp(a + pe, max=wmm) / wmm) ** (1 + b),
+            inner_calc,
             pe - (wm - w0),
         ),
         torch.full(pe.size(), 0.0).to(pe.device),
     )
+    
+    if debug_mode:
+        print(f"    r_cal range: [{r_cal.min():.6f}, {r_cal.max():.6f}], has NaN: {torch.isnan(r_cal).any()}")
+        if torch.isnan(r_cal).any():
+            nan_count = torch.isnan(r_cal).sum().item()
+            print(f"    ❌ NaN in r_cal! {nan_count} NaN elements")
+    
     if any(torch.isnan(r_cal)):
         raise ValueError(
             "Error: NaN values detected. Try set clamp function or check your data!!!"
@@ -246,13 +344,43 @@ def xaj_generation(
     w0 = torch.clamp(w0_, max=wm - 1e-5)
 
     # Calculate the amount of evaporation from storage
+    global _debug_batch_idx
+    debug_mode = _debug_batch_idx == 10  # batch 11 (0-indexed)
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_generation] Step {_debug_batch_idx} - Input parameters:")
+        print(f"    k range: [{k.min():.6f}, {k.max():.6f}], has NaN: {torch.isnan(k).any()}")
+        print(f"    b range: [{b.min():.6f}, {b.max():.6f}], has NaN: {torch.isnan(b).any()}")
+        print(f"    im range: [{im.min():.6f}, {im.max():.6f}], has NaN: {torch.isnan(im).any()}")
+        print(f"    um range: [{um.min():.6f}, {um.max():.6f}], lm: [{lm.min():.6f}, {lm.max():.6f}], dm: [{dm.min():.6f}, {dm.max():.6f}]")
+        print(f"    wm = um+lm+dm range: [{wm.min():.6f}, {wm.max():.6f}]")
+        print(f"    wu0 range: [{wu0.min():.6f}, {wu0.max():.6f}], wl0: [{wl0.min():.6f}, {wl0.max():.6f}], wd0: [{wd0.min():.6f}, {wd0.max():.6f}]")
+        print(f"    w0 = wu0+wl0+wd0 range: [{w0.min():.6f}, {w0.max():.6f}]")
+        print(f"    prcp range: [{prcp.min():.6f}, {prcp.max():.6f}], pet range: [{pet.min():.6f}, {pet.max():.6f}]")
+    
     eu, el, ed = calculate_evap(lm, c, wu0, wl0, prcp, pet)
     e = eu + el + ed
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_generation] Evaporation:")
+        print(f"    eu range: [{eu.min():.6f}, {eu.max():.6f}], el: [{el.min():.6f}, {el.max():.6f}], ed: [{ed.min():.6f}, {ed.max():.6f}]")
+        print(f"    e = eu+el+ed range: [{e.min():.6f}, {e.max():.6f}], has NaN: {torch.isnan(e).any()}")
 
     # Calculate the runoff generated by net precipitation
     prcp_difference = prcp - e
     pe = torch.clamp(prcp_difference, min=0.0)
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_generation] Net precipitation:")
+        print(f"    prcp - e range: [{prcp_difference.min():.6f}, {prcp_difference.max():.6f}]")
+        print(f"    pe = clamp(prcp-e, min=0) range: [{pe.min():.6f}, {pe.max():.6f}], has NaN: {torch.isnan(pe).any()}")
+    
     r, rim = calculate_prcp_runoff(b, im, wm, w0, pe)
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_generation] Runoff result:")
+        print(f"    r range: [{r.min():.6f}, {r.max():.6f}], has NaN: {torch.isnan(r).any()}")
+        print(f"    rim range: [{rim.min():.6f}, {rim.max():.6f}], has NaN: {torch.isnan(rim).any()}")
     # Update wu, wl, wd;
     # we use prcp_difference rather than pe, as when pe<0 but prcp>0, prcp should be considered
     wu, wl, wd = calculate_w_storage(
@@ -338,9 +466,49 @@ def xaj_sources(
     # cannot use torch.where, because it will cause some error when calculating gradient
     # fr = torch.where(r > 0.0, r / pe, fr0)
     # fr just use fr0, and it can be included in the computation graph, so we don't detach it
+    global _debug_batch_idx
+    debug_mode = _debug_batch_idx == 10  # batch 11 (0-indexed)
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_sources] Input check:")
+        print(f"    pe range: [{pe.min():.6f}, {pe.max():.6f}], has NaN: {torch.isnan(pe).any()}")
+        print(f"    r range: [{r.min():.6f}, {r.max():.6f}], has NaN: {torch.isnan(r).any()}")
+        print(f"    sm range: [{sm.min():.6f}, {sm.max():.6f}], ex range: [{ex.min():.6f}, {ex.max():.6f}]")
+        print(f"    s0 range: [{s0.min():.6f}, {s0.max():.6f}], fr0 range: [{fr0.min():.6f}, {fr0.max():.6f}]")
+        print(f"    ms = sm*(1+ex) range: [{ms.min():.6f}, {ms.max():.6f}]")
+    
     fr = torch.clone(fr0)
-    fr_mask = r > 0.0
+    # 反向传播安全写法：先mask，再算
+    # mask需要同时满足 r > 0 和 pe > eps，避免除零
+    fr_mask = (r > 0.0) & (pe > PRECISION)
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_sources] Critical division: fr = r / pe")
+        print(f"    r > 0 count: {(r > 0.0).sum().item()}")
+        print(f"    pe > PRECISION count: {(pe > PRECISION).sum().item()}")
+        print(f"    fr_mask (r > 0 & pe > PRECISION) count: {fr_mask.sum().item()}")
+        if fr_mask.any():
+            r_masked = r[fr_mask]
+            pe_masked = pe[fr_mask]
+            print(f"    r[fr_mask] range: [{r_masked.min():.6f}, {r_masked.max():.6f}]")
+            print(f"    pe[fr_mask] range: [{pe_masked.min():.6f}, {pe_masked.max():.6f}]")
+            print(f"    pe[fr_mask] == 0 count: {(pe_masked == 0).sum().item()}")
+            if (pe_masked == 0).any():
+                zero_count = (pe_masked == 0).sum().item()
+                print(f"    ❌ WARNING: {zero_count} elements have pe == 0, division by zero!")
+                zero_indices = torch.where(pe_masked == 0)[0][:5].tolist()
+                print(f"      Zero pe indices: {zero_indices}")
+                for idx in zero_indices[:3]:
+                    print(f"        idx {idx}: r={r_masked[idx]:.6f}, pe={pe_masked[idx]:.6f}")
+    
     fr[fr_mask] = r[fr_mask] / pe[fr_mask]
+    
+    if debug_mode:
+        print(f"    fr = r/pe range: [{fr.min():.6f}, {fr.max():.6f}], has NaN: {torch.isnan(fr).any()}")
+        if torch.isnan(fr).any():
+            nan_count = torch.isnan(fr).sum().item()
+            print(f"    ❌ NaN in fr! {nan_count} NaN elements")
+    
     if any(torch.isnan(fr)):
         raise ValueError(
             "Error: NaN values detected. Try set clamp function or check your data!!!"
@@ -352,17 +520,100 @@ def xaj_sources(
     ss = torch.clone(s0)
     s = torch.clone(s0)
 
-    ss[fr_mask] = fr0[fr_mask] * s0[fr_mask] / fr[fr_mask]
+    if debug_mode:
+        print(f"  [XAJ xaj_sources] Another critical division: ss = fr0 * s0 / fr")
+        if fr_mask.any():
+            fr0_masked = fr0[fr_mask]
+            s0_masked = s0[fr_mask]
+            fr_masked = fr[fr_mask]
+            print(f"    fr0[fr_mask] range: [{fr0_masked.min():.6f}, {fr0_masked.max():.6f}]")
+            print(f"    s0[fr_mask] range: [{s0_masked.min():.6f}, {s0_masked.max():.6f}]")
+            print(f"    fr[fr_mask] range: [{fr_masked.min():.6f}, {fr_masked.max():.6f}]")
+            print(f"    fr[fr_mask] == 0 count: {(fr_masked == 0).sum().item()}")
+    
+    # 反向传播安全写法：先mask，再算
+    # mask需要确保 fr > eps，避免除零
+    ss_mask = fr_mask & (fr > PRECISION)
+    ss[ss_mask] = fr0[ss_mask] * s0[ss_mask] / fr[ss_mask]
+    
+    if debug_mode:
+        print(f"    ss = fr0*s0/fr range: [{ss.min():.6f}, {ss.max():.6f}], has NaN: {torch.isnan(ss).any()}")
+        if torch.isnan(ss).any():
+            nan_count = torch.isnan(ss).sum().item()
+            print(f"    ❌ NaN in ss! {nan_count} NaN elements")
 
     if book == "HF":
         ss = torch.clamp(ss, max=sm - PRECISION)
-        au = ms * (1.0 - (1.0 - ss / sm) ** (1.0 / (1.0 + ex)))
+        
+        if debug_mode:
+            print(f"  [XAJ xaj_sources] Critical exponent: au = ms * (1 - (1 - ss/sm)^(1/(1+ex)))")
+            print(f"    ss after clamp range: [{ss.min():.6f}, {ss.max():.6f}]")
+            print(f"    ss/sm range: [{(ss/sm).min():.6f}, {(ss/sm).max():.6f}]")
+            ss_sm_ratio = ss / sm
+            one_minus_ratio = 1.0 - ss_sm_ratio
+            exp_power = 1.0 / (1.0 + ex)
+            print(f"    1 - ss/sm range: [{one_minus_ratio.min():.6f}, {one_minus_ratio.max():.6f}]")
+            print(f"    exp_power = 1/(1+ex) range: [{exp_power.min():.6f}, {exp_power.max():.6f}]")
+            if (one_minus_ratio <= 0).any():
+                neg_count = (one_minus_ratio <= 0).sum().item()
+                print(f"    ⚠️  WARNING: {neg_count} elements have (1 - ss/sm) <= 0, clamped to PRECISION for gradient stability!")
+        
+        # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+        exp_base_au = torch.clamp(1.0 - ss / sm, min=PRECISION)
+        au = ms * (1.0 - exp_base_au ** (1.0 / (1.0 + ex)))
+        
+        if debug_mode:
+            print(f"    au range: [{au.min():.6f}, {au.max():.6f}], has NaN: {torch.isnan(au).any()}")
+            if torch.isnan(au).any():
+                nan_count = torch.isnan(au).sum().item()
+                print(f"    ❌ NaN in au! {nan_count} NaN elements")
+        
         if any(torch.isnan(au)):
             raise ValueError(
                 "Error: NaN values detected. Try set clamp function or check your data!!!"
             )
 
         rs = torch.full_like(r, 0.0, device=xaj_device)
+        
+        if debug_mode:
+            print(f"  [XAJ xaj_sources] Surface runoff calculation (rs):")
+            if fr_mask.any():
+                pe_masked = pe[fr_mask]
+                au_masked = au[fr_mask]
+                ms_masked = ms[fr_mask]
+                sm_masked = sm[fr_mask]
+                ss_masked = ss[fr_mask]
+                fr_masked = fr[fr_mask]
+                ex_masked = ex[fr_mask]
+                
+                sum_pe_au = pe_masked + au_masked
+                print(f"    pe[fr_mask] + au[fr_mask] range: [{sum_pe_au.min():.6f}, {sum_pe_au.max():.6f}]")
+                print(f"    ms[fr_mask] range: [{ms_masked.min():.6f}, {ms_masked.max():.6f}]")
+                print(f"    (pe+au) < ms count: {(sum_pe_au < ms_masked).sum().item()}")
+                
+                # 关键计算：另一个指数运算
+                clamped_sum = torch.clamp(sum_pe_au, max=ms_masked)
+                clamped_ratio = clamped_sum / ms_masked
+                one_minus_clamped = 1 - clamped_ratio
+                exp_power3 = 1 + ex_masked
+                
+                print(f"    clamped(pe+au, max=ms) range: [{clamped_sum.min():.6f}, {clamped_sum.max():.6f}]")
+                print(f"    clamped/ms range: [{clamped_ratio.min():.6f}, {clamped_ratio.max():.6f}]")
+                print(f"    1 - clamped/ms range: [{one_minus_clamped.min():.6f}, {one_minus_clamped.max():.6f}]")
+                print(f"    exp_power = 1+ex range: [{exp_power3.min():.6f}, {exp_power3.max():.6f}]")
+                
+                if (one_minus_clamped <= 0).any():
+                    neg_count = (one_minus_clamped <= 0).sum().item()
+                    print(f"    ⚠️  WARNING: {neg_count} elements have (1 - clamped/ms) <= 0, clamped to PRECISION for gradient stability!")
+                
+                # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                exp_base3 = torch.clamp(one_minus_clamped, min=PRECISION)
+                exp_result3 = exp_base3 ** exp_power3
+                print(f"    (1 - clamped/ms)^(1+ex) range: [{exp_result3.min():.6f}, {exp_result3.max():.6f}], has NaN: {torch.isnan(exp_result3).any()}")
+                if torch.isnan(exp_result3).any():
+                    nan_count = torch.isnan(exp_result3).sum().item()
+                    print(f"    ❌ NaN in exp_result3! {nan_count} NaN elements")
+        
         rs[fr_mask] = torch.where(
             pe[fr_mask] + au[fr_mask] < ms[fr_mask],
             # equation 2-85 in HF
@@ -378,9 +629,13 @@ def xaj_sources(
                 + sm[fr_mask]
                 * (
                     (
-                        1
-                        - torch.clamp(pe[fr_mask] + au[fr_mask], max=ms[fr_mask])
-                        / ms[fr_mask]
+                        # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                        torch.clamp(
+                            1
+                            - torch.clamp(pe[fr_mask] + au[fr_mask], max=ms[fr_mask])
+                            / ms[fr_mask],
+                            min=PRECISION
+                        )
                     )
                     ** (1 + ex[fr_mask])
                 )
@@ -388,19 +643,59 @@ def xaj_sources(
             # equation 2-86 in HF
             fr[fr_mask] * (pe[fr_mask] + ss[fr_mask] - sm[fr_mask]),
         )
+        
+        if debug_mode:
+            print(f"    rs range: [{rs.min():.6f}, {rs.max():.6f}], has NaN: {torch.isnan(rs).any()}")
+            if torch.isnan(rs).any():
+                nan_count = torch.isnan(rs).sum().item()
+                print(f"    ❌ NaN in rs! {nan_count} NaN elements")
+        
         rs = torch.clamp(rs, max=r)
+        
+        if debug_mode:
+            print(f"  [XAJ xaj_sources] Another critical division: s = ss + (r - rs) / fr")
+            if fr_mask.any():
+                r_masked = r[fr_mask]
+                rs_masked = rs[fr_mask]
+                ss_masked = ss[fr_mask]
+                fr_masked = fr[fr_mask]
+                print(f"    r[fr_mask] - rs[fr_mask] range: [{(r_masked - rs_masked).min():.6f}, {(r_masked - rs_masked).max():.6f}]")
+                print(f"    fr[fr_mask] range: [{fr_masked.min():.6f}, {fr_masked.max():.6f}]")
+                print(f"    fr[fr_mask] == 0 count: {(fr_masked == 0).sum().item()}")
+        
         # ri's mask is not same as rs's, because last period's s may not be 0
         # and in this time, ri and rg could be larger than 0
         # we need firstly calculate the updated s, s's mask is same as fr_mask,
         # when r==0, then s will be equal to last period's
         # equation 2-87 in HF, some free water leave or save, so we update free water storage
-        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr[fr_mask]
+        # 反向传播安全写法：先mask，再算
+        # mask需要确保 fr > eps，避免除零
+        s_mask = fr_mask & (fr > PRECISION)
+        s[s_mask] = ss[s_mask] + (r[s_mask] - rs[s_mask]) / fr[s_mask]
+        
+        if debug_mode:
+            print(f"    s = ss + (r-rs)/fr range: [{s.min():.6f}, {s.max():.6f}], has NaN: {torch.isnan(s).any()}")
+            if torch.isnan(s).any():
+                nan_count = torch.isnan(s).sum().item()
+                print(f"    ❌ NaN in s! {nan_count} NaN elements")
+        
         s = torch.clamp(s, max=sm)
     elif book == "EH":
-        smmf = ms * (1 - (1 - fr) ** (1 / ex))
+        # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+        exp_base_fr = torch.clamp(1 - fr, min=PRECISION)
+        smmf = ms * (1 - exp_base_fr ** (1 / ex))
         smf = smmf / (1 + ex)
         ss = torch.clamp(ss, max=smf - PRECISION)
-        au = smmf * (1 - (1 - ss / smf) ** (1 / (1 + ex)))
+        # 反向传播安全写法：先mask，再算
+        # 避免 smf == 0 时的除零错误
+        smf_mask = smf > PRECISION
+        au = torch.zeros_like(smmf)
+        if smf_mask.any():
+            ss_smf_ratio = torch.zeros_like(ss)
+            ss_smf_ratio[smf_mask] = ss[smf_mask] / smf[smf_mask]
+            # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+            exp_base_smf = torch.clamp(1 - ss_smf_ratio[smf_mask], min=PRECISION)
+            au[smf_mask] = smmf[smf_mask] * (1 - exp_base_smf ** (1 / (1 + ex[smf_mask])))
         if torch.isnan(au).any():
             raise ArithmeticError(
                 "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -414,12 +709,16 @@ def xaj_sources(
                 + ss[fr_mask]
                 + smf[fr_mask]
                 * (
-                    1
-                    - torch.clamp(
-                        pe[fr_mask] + au[fr_mask],
-                        max=smmf[fr_mask],
+                    # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                    torch.clamp(
+                        1
+                        - torch.clamp(
+                            pe[fr_mask] + au[fr_mask],
+                            max=smmf[fr_mask],
+                        )
+                        / smmf[fr_mask],
+                        min=PRECISION
                     )
-                    / smmf[fr_mask]
                 )
                 ** (ex[fr_mask] + 1)
             )
@@ -427,8 +726,11 @@ def xaj_sources(
             (pe[fr_mask] + ss[fr_mask] - smf[fr_mask]) * fr[fr_mask],
         )
         rs = torch.clamp(rs, max=r)
-        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr[fr_mask]
-        s[fr_mask] = torch.clamp(s[fr_mask], max=smf[fr_mask])
+        # 反向传播安全写法：先mask，再算
+        # mask需要确保 fr > eps，避免除零
+        s_mask = fr_mask & (fr > PRECISION)
+        s[s_mask] = ss[s_mask] + (r[s_mask] - rs[s_mask]) / fr[s_mask]
+        s[s_mask] = torch.clamp(s[s_mask], max=smf[s_mask])
         s = torch.clamp(s, max=smf)
     else:
         raise ValueError("Please set book as 'HF' or 'EH'!")
@@ -437,9 +739,31 @@ def xaj_sources(
     # Hence, we directly use ki and kg rather than ki_{Δt} in books.
     ri = ki * s * fr
     rg = kg * s * fr
+    
+    if debug_mode:
+        print(f"  [XAJ xaj_sources] Interflow and groundwater:")
+        print(f"    ri = ki * s * fr range: [{ri.min():.6f}, {ri.max():.6f}], has NaN: {torch.isnan(ri).any()}")
+        print(f"    rg = kg * s * fr range: [{rg.min():.6f}, {rg.max():.6f}], has NaN: {torch.isnan(rg).any()}")
+        print(f"    ki range: [{ki.min():.6f}, {ki.max():.6f}], kg range: [{kg.min():.6f}, {kg.max():.6f}]")
+        print(f"    ki + kg range: [{(ki + kg).min():.6f}, {(ki + kg).max():.6f}]")
+        if (ki + kg >= 1.0).any():
+            invalid_count = (ki + kg >= 1.0).sum().item()
+            print(f"    ⚠️  WARNING: {invalid_count} elements have ki + kg >= 1.0!")
+    
     # equation 2-89 in HF; although it looks different with that in WHS, they are actually same
     # Finally, calculate the final free water storage
     s1 = s * (1 - ki - kg)
+    
+    if debug_mode:
+        print(f"    s1 = s * (1 - ki - kg) range: [{s1.min():.6f}, {s1.max():.6f}], has NaN: {torch.isnan(s1).any()}")
+        if torch.isnan(s1).any():
+            nan_count = torch.isnan(s1).sum().item()
+            print(f"    ❌ NaN in s1! {nan_count} NaN elements")
+        print(f"  [XAJ xaj_sources] Final outputs:")
+        print(f"    rs range: [{rs.min():.6f}, {rs.max():.6f}], has NaN: {torch.isnan(rs).any()}")
+        print(f"    ri range: [{ri.min():.6f}, {ri.max():.6f}], has NaN: {torch.isnan(ri).any()}")
+        print(f"    rg range: [{rg.min():.6f}, {rg.max():.6f}], has NaN: {torch.isnan(rg).any()}")
+    
     return (rs, ri, rg), (s1, fr)
 
 
@@ -497,7 +821,9 @@ def xaj_sources5mm(
     if s0 is None:
         s0 = 0.5 * (sm.clone().detach())
     fr = torch.clone(fr0)
-    fr_mask = runoff > 0.0
+    # 反向传播安全写法：先mask，再算
+    # mask需要同时满足 runoff > 0 和 pe > eps，避免除零
+    fr_mask = (runoff > 0.0) & (pe > PRECISION)
     fr[fr_mask] = runoff[fr_mask] / pe[fr_mask]
     if torch.all(runoff < 5):
         n = 1
@@ -509,8 +835,18 @@ def xaj_sources5mm(
         n = int(r_max / 5) + residue_temp
     rn = runoff / n
     pen = pe / n
-    kss_d = (1 - (1 - (ki + kg)) ** (1 / n)) / (1 + kg / ki)
-    kg_d = kss_d * kg / ki
+    # 反向传播安全写法：先mask，再算
+    # 避免 ki == 0 时的除零错误
+    ki_mask = ki > PRECISION
+    kss_d = torch.zeros_like(ki)
+    kg_d = torch.zeros_like(ki)
+    if ki_mask.any():
+        kg_ki_ratio = torch.zeros_like(ki)
+        kg_ki_ratio[ki_mask] = kg[ki_mask] / ki[ki_mask]
+        # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+        exp_base_ki = torch.clamp(1 - (ki[ki_mask] + kg[ki_mask]), min=PRECISION)
+        kss_d[ki_mask] = (1 - exp_base_ki ** (1 / n)) / (1 + kg_ki_ratio[ki_mask])
+        kg_d[ki_mask] = kss_d[ki_mask] * kg[ki_mask] / ki[ki_mask]
     if torch.isnan(kss_d).any() or torch.isnan(kg_d).any():
         raise ValueError("Error: NaN values detected. Check your parameters setting!!!")
     # kss_d = ki
@@ -536,12 +872,17 @@ def xaj_sources5mm(
         ss_d = torch.clone(s0_d)
         s_d = torch.clone(s0_d)
 
-        ss_d[fr_mask] = fr0_d[fr_mask] * s0_d[fr_mask] / fr_d[fr_mask]
+        # 反向传播安全写法：先mask，再算
+        # mask需要确保 fr_d > eps，避免除零
+        ss_mask = fr_mask & (fr_d > PRECISION)
+        ss_d[ss_mask] = fr0_d[ss_mask] * s0_d[ss_mask] / fr_d[ss_mask]
 
         if book == "HF":
             # ms = smm
             ss_d = torch.clamp(ss_d, max=sm - PRECISION)
-            au = smm * (1.0 - (1.0 - ss_d / sm) ** (1.0 / (1.0 + ex)))
+            # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+            exp_base_au_d = torch.clamp(1.0 - ss_d / sm, min=PRECISION)
+            au = smm * (1.0 - exp_base_au_d ** (1.0 / (1.0 + ex)))
             if torch.isnan(au).any():
                 raise ValueError(
                     "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -558,9 +899,13 @@ def xaj_sources5mm(
                     + sm[fr_mask]
                     * (
                         (
-                            1
-                            - torch.clamp(pen[fr_mask] + au[fr_mask], max=smm[fr_mask])
-                            / smm[fr_mask]
+                            # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                            torch.clamp(
+                                1
+                                - torch.clamp(pen[fr_mask] + au[fr_mask], max=smm[fr_mask])
+                                / smm[fr_mask],
+                                min=PRECISION
+                            )
                         )
                         ** (1 + ex[fr_mask])
                     )
@@ -569,14 +914,28 @@ def xaj_sources5mm(
                 fr_d[fr_mask] * (pen[fr_mask] + ss_d[fr_mask] - sm[fr_mask]),
             )
             rs_j = torch.clamp(rs_j, max=rn)
-            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d[fr_mask]
+            # 反向传播安全写法：先mask，再算
+            # mask需要确保 fr_d > eps，避免除零
+            s_mask = fr_mask & (fr_d > PRECISION)
+            s_d[s_mask] = ss_d[s_mask] + (rn[s_mask] - rs_j[s_mask]) / fr_d[s_mask]
             s_d = torch.clamp(s_d, max=sm)
 
         elif book == "EH":
-            smmf = smm * (1 - (1 - fr_d) ** (1 / ex))
+            # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+            exp_base_fr_d = torch.clamp(1 - fr_d, min=PRECISION)
+            smmf = smm * (1 - exp_base_fr_d ** (1 / ex))
             smf = smmf / (1 + ex)
             ss_d = torch.clamp(ss_d, max=smf - PRECISION)
-            au = smmf * (1 - (1 - ss_d / smf) ** (1 / (1 + ex)))
+            # 反向传播安全写法：先mask，再算
+            # 避免 smf == 0 时的除零错误
+            smf_mask = smf > PRECISION
+            au = torch.zeros_like(smmf)
+            if smf_mask.any():
+                ss_d_smf_ratio = torch.zeros_like(ss_d)
+                ss_d_smf_ratio[smf_mask] = ss_d[smf_mask] / smf[smf_mask]
+                # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                exp_base_smf_d = torch.clamp(1 - ss_d_smf_ratio[smf_mask], min=PRECISION)
+                au[smf_mask] = smmf[smf_mask] * (1 - exp_base_smf_d ** (1 / (1 + ex[smf_mask])))
             if torch.isnan(au).any():
                 raise ValueError(
                     "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -590,12 +949,16 @@ def xaj_sources5mm(
                     + ss_d[fr_mask]
                     + smf[fr_mask]
                     * (
-                        1
-                        - torch.clamp(
-                            pen[fr_mask] + au[fr_mask],
-                            max=smmf[fr_mask],
+                        # 将底数clamp到PRECISION以上，避免反向传播时梯度不稳定
+                        torch.clamp(
+                            1
+                            - torch.clamp(
+                                pen[fr_mask] + au[fr_mask],
+                                max=smmf[fr_mask],
+                            )
+                            / smmf[fr_mask],
+                            min=PRECISION
                         )
-                        / smmf[fr_mask]
                     )
                     ** (ex[fr_mask] + 1)
                 )
@@ -603,7 +966,10 @@ def xaj_sources5mm(
                 (pen[fr_mask] + ss_d[fr_mask] - smf[fr_mask]) * fr_d[fr_mask],
             )
             rs_j = torch.clamp(rs_j, max=rn)
-            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d[fr_mask]
+            # 反向传播安全写法：先mask，再算
+            # mask需要确保 fr_d > eps，避免除零
+            s_mask = fr_mask & (fr_d > PRECISION)
+            s_d[s_mask] = ss_d[s_mask] + (rn[s_mask] - rs_j[s_mask]) / fr_d[s_mask]
             s_d = torch.clamp(s_d, max=smf)
         else:
             raise NotImplementedError(
@@ -774,16 +1140,48 @@ class Xaj4Dpl(nn.Module):
             qg0 = torch.full(cg.size(), 0.1).to(xaj_device)
 
         inputs = p_and_e[warmup_length:, :, :]
+        
+        global _debug_batch_idx
+        debug_mode = _debug_batch_idx == 10  # batch 11 (0-indexed)
+        
+        if debug_mode:
+            print(f"\n{'='*60}")
+            print(f"[XAJ Xaj4Dpl.forward] Starting forward pass for batch 11")
+            print(f"{'='*60}")
+            print(f"  Input shape: {p_and_e.shape}, inputs (after warmup) shape: {inputs.shape}")
+            print(f"  Warmup length: {warmup_length}")
+            print(f"  Denormalized parameters:")
+            print(f"    k range: [{k.min():.6f}, {k.max():.6f}], b: [{b.min():.6f}, {b.max():.6f}]")
+            print(f"    um: [{um.min():.6f}, {um.max():.6f}], lm: [{lm.min():.6f}, {lm.max():.6f}], dm: [{dm.min():.6f}, {dm.max():.6f}]")
+            print(f"    sm: [{sm.min():.6f}, {sm.max():.6f}], ex: [{ex.min():.6f}, {ex.max():.6f}]")
+            print(f"    ki: [{ki.min():.6f}, {ki.max():.6f}], kg: [{kg.min():.6f}, {kg.max():.6f}]")
+            print(f"    ki+kg range: [{(ki+kg).min():.6f}, {(ki+kg).max():.6f}]")
+            if (ki + kg >= 1.0).any():
+                invalid_count = (ki + kg >= 1.0).sum().item()
+                print(f"    ⚠️  WARNING: {invalid_count} basins have ki + kg >= 1.0!")
+            print(f"  Initial states:")
+            print(f"    w0: {w0[0] if isinstance(w0, tuple) else w0[:3]}")
+            print(f"    s0 range: [{s0.min():.6f}, {s0.max():.6f}], fr0 range: [{fr0.min():.6f}, {fr0.max():.6f}]")
+            print(f"  Starting time loop for {inputs.shape[0]} time steps...")
+        
         runoff_ims_ = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         rss_ = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         ris_ = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         rgs_ = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         es_ = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         for i in range(inputs.shape[0]):
+            if debug_mode and (i < 3 or i == inputs.shape[0] - 1):  # 只打印前3步和最后一步
+                print(f"\n  [XAJ Time step {i}/{inputs.shape[0]-1}]")
+            
             if i == 0:
+                if debug_mode:
+                    print(f"    Calling xaj_generation with initial states w0...")
                 (r, rim, e, pe), w = xaj_generation(
                     inputs[i, :, :], k, b, im, um, lm, dm, c, *w0
                 )
+                if debug_mode:
+                    print(f"    xaj_generation output: r range [{r.min():.6f}, {r.max():.6f}], has NaN: {torch.isnan(r).any()}")
+                    print(f"    Calling xaj_sources with initial s0, fr0...")
                 if self.source_type == "sources":
                     (rs, ri, rg), (s, fr) = xaj_sources(
                         pe, r, sm, ex, ki, kg, s0, fr0, book=self.source_book
@@ -794,10 +1192,17 @@ class Xaj4Dpl(nn.Module):
                     )
                 else:
                     raise NotImplementedError("No such divide-sources method")
+                if debug_mode:
+                    print(f"    xaj_sources output: rs range [{rs.min():.6f}, {rs.max():.6f}], has NaN: {torch.isnan(rs).any()}")
             else:
+                if debug_mode and (i < 3 or i == inputs.shape[0] - 1):
+                    print(f"    Calling xaj_generation with updated states w...")
                 (r, rim, e, pe), w = xaj_generation(
                     inputs[i, :, :], k, b, im, um, lm, dm, c, *w
                 )
+                if debug_mode and (i < 3 or i == inputs.shape[0] - 1):
+                    print(f"    xaj_generation output: r range [{r.min():.6f}, {r.max():.6f}], has NaN: {torch.isnan(r).any()}")
+                    print(f"    Calling xaj_sources with updated s, fr...")
                 if self.source_type == "sources":
                     (rs, ri, rg), (s, fr) = xaj_sources(
                         pe, r, sm, ex, ki, kg, s, fr, book=self.source_book
@@ -808,6 +1213,9 @@ class Xaj4Dpl(nn.Module):
                     )
                 else:
                     raise NotImplementedError("No such divide-sources method")
+                if debug_mode and (i < 3 or i == inputs.shape[0] - 1):
+                    print(f"    xaj_sources output: rs range [{rs.min():.6f}, {rs.max():.6f}], has NaN: {torch.isnan(rs).any()}")
+                    print(f"    Updated states: s range [{s.min():.6f}, {s.max():.6f}], fr range [{fr.min():.6f}, {fr.max():.6f}]")
             # impevious part is pe * im
             runoff_ims_[i, :] = rim
             # so for non-imprvious part, the result should be corrected
@@ -823,8 +1231,19 @@ class Xaj4Dpl(nn.Module):
         rss = torch.unsqueeze(rss_, dim=2)
         es = torch.unsqueeze(es_, dim=2)
 
+        if debug_mode:
+            print(f"\n  [XAJ Xaj4Dpl.forward] After time loop, routing calculations:")
+            print(f"    runoff_im + rss range: [{(runoff_im + rss).min():.6f}, {(runoff_im + rss).max():.6f}], has NaN: {torch.isnan(runoff_im + rss).any()}")
+            print(f"    ris_ range: [{ris_.min():.6f}, {ris_.max():.6f}], has NaN: {torch.isnan(ris_).any()}")
+            print(f"    rgs_ range: [{rgs_.min():.6f}, {rgs_.max():.6f}], has NaN: {torch.isnan(rgs_).any()}")
+            print(f"    ci range: [{ci.min():.6f}, {ci.max():.6f}], cg range: [{cg.min():.6f}, {cg.max():.6f}]")
+        
         conv_uh = KernelConv(a, theta, self.kernel_size)
         qs_ = conv_uh(runoff_im + rss)
+        
+        if debug_mode:
+            print(f"    After KernelConv, qs_ range: [{qs_.min():.6f}, {qs_.max():.6f}], has NaN: {torch.isnan(qs_).any()}")
+        
         qs = torch.full(inputs.shape[:2], 0.0).to(xaj_device)
         for i in range(inputs.shape[0]):
             if i == 0:
@@ -834,8 +1253,22 @@ class Xaj4Dpl(nn.Module):
                 qi = linear_reservoir(ris_[i], ci, qi)
                 qg = linear_reservoir(rgs_[i], cg, qg)
             qs[i, :] = qs_[i, :, 0] + qi + qg
+            
+            if debug_mode and (i < 3 or i == inputs.shape[0] - 1):
+                print(f"    Step {i}: qi range [{qi.min():.6f}, {qi.max():.6f}], qg range [{qg.min():.6f}, {qg.max():.6f}]")
+                print(f"      qs[{i}] = qs_ + qi + qg range: [{qs[i].min():.6f}, {qs[i].max():.6f}], has NaN: {torch.isnan(qs[i]).any()}")
+        
         # seq, batch, feature
         q_sim = torch.unsqueeze(qs, dim=2)
+        
+        if debug_mode:
+            print(f"\n  [XAJ Xaj4Dpl.forward] Final output:")
+            print(f"    q_sim range: [{q_sim.min():.6f}, {q_sim.max():.6f}], has NaN: {torch.isnan(q_sim).any()}")
+            if torch.isnan(q_sim).any():
+                nan_count = torch.isnan(q_sim).sum().item()
+                print(f"    ❌ NaN in final q_sim! {nan_count} NaN elements")
+            print(f"{'='*60}\n")
+        
         if return_state:
             return q_sim, es, *w, s, fr, qi, qg
         return q_sim, es
@@ -908,6 +1341,12 @@ class DplLstmXaj(nn.Module):
         torch.Tensor
             streamflow result only (q)
         """
+        # 插入 print 4：检查进入 lstm_pbm 前的数据
+        print(f"DEBUG DplLstmXaj.forward: x shape: {x.shape}, z shape: {z.shape}")
+        print(f"  x has NaN: {torch.isnan(x).any()}, z has NaN: {torch.isnan(z).any()}")
+        print(f"  x range: [{x.min():.4f}, {x.max():.4f}]")
+        print(f"  z range: [{z.min():.4f}, {z.max():.4f}]")
+        
         q, _ = lstm_pbm(self.dl_model, self.pb_model, self.param_func, x, z)
         return q
 
@@ -937,7 +1376,34 @@ def lstm_pbm(dl_model, pb_model, param_func, x, z):
     torch.Tensor
             one time forward result
     """
+    # 插入 print 5：检查 LSTM 输入
+    print(f"DEBUG lstm_pbm: z shape: {z.shape}")
+    print(f"  z has NaN: {torch.isnan(z).any()}")
+    print(f"  z range: [{z.min():.4f}, {z.max():.4f}]")
+    
+    # 插入 print 6：检查模型权重（在调用前）
+    print("DEBUG: Checking LSTM model weights before forward...")
+    for name, param in dl_model.named_parameters():
+        if torch.isnan(param).any():
+            print(f"  ❌ NaN in {name}: {torch.isnan(param).sum()} elements")
+        else:
+            param_norm = param.norm().item()
+            if param_norm > 100:
+                print(f"  ⚠️  Large weight in {name}: norm={param_norm:.2f}")
+    
     gen = dl_model(z)
+    
+    # 插入 print 7：检查 LSTM 输出
+    print(f"DEBUG lstm_pbm: gen shape: {gen.shape}")
+    print(f"  gen has NaN: {torch.isnan(gen).any()}")
+    if torch.isnan(gen).any():
+        print(f"  ❌❌❌ NaN detected in gen! ❌❌❌")
+        print(f"  NaN count: {torch.isnan(gen).sum()}")
+        # 再次检查权重
+        for name, param in dl_model.named_parameters():
+            if torch.isnan(param).any():
+                print(f"    NaN in weight {name}")
+    
     if torch.isnan(gen).any():
         raise ValueError("Error: NaN values detected. Check your data firstly!!!")
     # we set all params' values in [0, 1] and will scale them when forwarding

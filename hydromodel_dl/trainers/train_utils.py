@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import dask
+import sys
 from functools import reduce
 from pathlib import Path
 import pandas as pd
@@ -13,6 +14,7 @@ import xarray as xr
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from datetime import datetime
 
 from hydrodatautils.foundation.hydro_statistic import statistic_nd_error
 from hydrodatautils.foundation.hydro_model import (
@@ -27,6 +29,128 @@ from hydromodel_dl.models.crits import (
     PeakFocusedFloodSampleLoss,
     PeakFocusedFloodEventLoss,
 )
+
+
+class OutputLogger:
+    """捕获所有输出并同时写入终端和收集到缓冲区，最后保存到 markdown 文件"""
+    
+    def __init__(self, md_file_path=None):
+        """
+        初始化输出日志记录器
+        
+        Parameters
+        ----------
+        md_file_path : str, optional
+            markdown 文件路径。如果为 None，则不会保存到文件
+        """
+        self.original_stdout = sys.stdout
+        self.md_file_path = md_file_path
+        self.output_lines = []
+        self.is_active = False
+    
+    def write(self, text):
+        """写入方法，同时输出到终端和收集到缓冲区"""
+        # 输出到原始终端
+        self.original_stdout.write(text)
+        self.original_stdout.flush()
+        
+        # 收集到缓冲区
+        if self.is_active:
+            self.output_lines.append(text)
+    
+    def flush(self):
+        """刷新方法"""
+        self.original_stdout.flush()
+    
+    def start(self):
+        """开始捕获输出"""
+        self.is_active = True
+        self.output_lines = []
+        sys.stdout = self
+    
+    def stop(self):
+        """停止捕获输出"""
+        self.is_active = False
+        sys.stdout = self.original_stdout
+    
+    def save_to_markdown(self, md_file_path=None):
+        """
+        将所有收集的输出保存到 markdown 文件
+        
+        Parameters
+        ----------
+        md_file_path : str, optional
+            如果提供，将使用此路径而不是初始化时的路径
+        """
+        file_path = md_file_path or self.md_file_path
+        if file_path is None:
+            return
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
+        
+        # 将所有输出内容合并
+        content = ''.join(self.output_lines)
+        
+        # 如果文件已存在，追加内容；否则创建新文件
+        mode = 'a' if os.path.exists(file_path) else 'w'
+        
+        with open(file_path, mode, encoding='utf-8') as f:
+            if mode == 'a':
+                # 追加模式：添加分隔符和时间戳
+                f.write(f"\n\n---\n\n## 训练输出记录 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("```\n")
+            else:
+                # 新建模式：添加标题
+                f.write(f"# 训练输出日志\n\n")
+                f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("```\n")
+            
+            # 写入内容
+            f.write(content)
+            f.write("\n```\n")
+        
+        print(f"\n输出已保存到: {file_path}")
+
+
+# 全局输出日志记录器实例
+_global_output_logger = None
+
+
+def start_output_logging(md_file_path):
+    """
+    开始输出日志记录
+    
+    Parameters
+    ----------
+    md_file_path : str
+        markdown 文件保存路径
+    """
+    global _global_output_logger
+    if _global_output_logger is None or _global_output_logger.md_file_path != md_file_path:
+        _global_output_logger = OutputLogger(md_file_path)
+    _global_output_logger.start()
+
+
+def stop_output_logging():
+    """停止输出日志记录（但不保存）"""
+    global _global_output_logger
+    if _global_output_logger:
+        _global_output_logger.stop()
+
+
+def save_output_to_markdown(md_file_path=None):
+    """
+    将所有收集的输出保存到 markdown 文件（最后一步调用）
+    
+    Parameters
+    ----------
+    md_file_path : str, optional
+        如果提供，将使用此路径；否则使用初始化时的路径
+    """
+    global _global_output_logger
+    if _global_output_logger:
+        _global_output_logger.save_to_markdown(md_file_path)
 
 
 def _extract_xaj_params(model, xs, device):
@@ -251,10 +375,22 @@ def model_infer(seq_first, device, model, xs, ys, return_xaj_params=False):
         if seq_first and ys.ndim == 3
         else ys.to(device)
     )
+    # 插入 print 3：检查模型输入和输出
+    if len(xs) >= 2:  # DplLstmXaj 有两个输入
+        x, z = xs[0], xs[1]
+        print(f"DEBUG model_infer: x shape: {x.shape}, z shape: {z.shape}")
+        print(f"  x has NaN: {torch.isnan(x).any()}, z has NaN: {torch.isnan(z).any()}")
+        print(f"  x range: [{x.min():.4f}, {x.max():.4f}]")
+        print(f"  z range: [{z.min():.4f}, {z.max():.4f}]")
+    
     output = model(*xs)
     if type(output) is tuple:
         # Convention: y_p must be the first output of model
         output = output[0]
+    
+    # 插入 print 3 续：检查模型输出
+    if len(xs) >= 2:
+        print(f"  output has NaN: {torch.isnan(output).any() if isinstance(output, torch.Tensor) else 'N/A'}")
     
     # Check if we need to extract XAJ parameters for DplLstmXaj model
     xaj_params = None
@@ -645,6 +781,16 @@ def torch_single_train(
     ValueError
         if nan exits, raise a ValueError
     """
+    # 初始化输出日志记录器（如果提供了 md_file_path）
+    md_file_path = kwargs.get("md_file_path", None)
+    if md_file_path:
+        global _global_output_logger
+        if _global_output_logger is None or not _global_output_logger.is_active:
+            # 第一次调用或未激活时，启动输出捕获
+            if _global_output_logger is None or _global_output_logger.md_file_path != md_file_path:
+                _global_output_logger = OutputLogger(md_file_path)
+            _global_output_logger.start()
+    
     # we will set model.eval() in the validation function so here we should set model.train()
     model.train()
     n_iter_ep = 0
@@ -653,13 +799,33 @@ def torch_single_train(
     seq_first = which_first_tensor != "batch"
     pbar = tqdm(data_loader)
 
-    for _, batch_data in enumerate(pbar):
+    for batch_idx, batch_data in enumerate(pbar):
+        # 设置全局 batch 索引（用于 XAJ 模型诊断）
+        import hydromodel_dl.models.dpl4xaj as dpl4xaj_module
+        dpl4xaj_module._debug_batch_idx = batch_idx
+        
+        # 插入 print 1：检查 batch 编号
+        if batch_idx >= 9:  # 从第 10 个 batch 开始打印（0-indexed，所以是第 11 个）
+            print(f"\n{'='*60}")
+            print(f"DEBUG: Batch {batch_idx + 1}/46")
+            print(f"{'='*60}")
+        
         # Handle different data formats: (src, trg) or (src, trg, event_ids)
         if len(batch_data) == 3:
             src, trg, event_ids = batch_data
         else:
             src, trg = batch_data
             event_ids = None
+        
+        # 插入 print 2：检查输入数据
+        if batch_idx >= 9:
+            if isinstance(src, list):
+                print(f"DEBUG: src is list with {len(src)} elements")
+                for i, s in enumerate(src):
+                    print(f"  src[{i}] shape: {s.shape}, has NaN: {torch.isnan(s).any()}, "
+                          f"max: {s.max():.4f}, min: {s.min():.4f}")
+            else:
+                print(f"DEBUG: src shape: {src.shape}, has NaN: {torch.isnan(src).any()}")
         
         trg, output = model_infer(seq_first, device, model, src, trg)
 
@@ -668,12 +834,159 @@ def torch_single_train(
             kwargs["event_ids"] = event_ids
         
         loss = compute_loss(trg, output, criterion, **kwargs)
+        
+        # 插入 print 12：详细检查 loss
+        if batch_idx >= 9:
+            print(f"DEBUG: loss = {loss.item():.6f}")
+            print(f"  loss has NaN: {torch.isnan(loss)}")
+            print(f"  loss is inf: {torch.isinf(loss)}")
+            print(f"  loss requires_grad: {loss.requires_grad}")
+            # 检查 output 和 trg
+            print(f"  output has NaN: {torch.isnan(output).any() if isinstance(output, torch.Tensor) else 'N/A'}")
+            print(f"  trg has NaN: {torch.isnan(trg).any()}")
+            if isinstance(output, torch.Tensor):
+                print(f"  output range: [{output.min():.4f}, {output.max():.4f}]")
+            print(f"  trg range: [{trg.min():.4f}, {trg.max():.4f}]")
+        
         if loss > 100:
             print("Warning: high loss detected")
         if torch.isnan(loss):
             continue
+        
+        # 插入检查：在 backward 前检查模型输出是否有问题
+        if batch_idx >= 9:
+            print("DEBUG: Checking model output before backward...")
+            if isinstance(output, torch.Tensor):
+                if torch.isnan(output).any():
+                    nan_count = torch.isnan(output).sum().item()
+                    print(f"  ⚠️  output has {nan_count} NaN values")
+                if torch.isinf(output).any():
+                    inf_count = torch.isinf(output).sum().item()
+                    print(f"  ⚠️  output has {inf_count} Inf values")
+        
         loss.backward()  # Backpropagate to compute the current gradient
+        
+        # 插入检查：backward 后立即检查 loss 的梯度
+        if batch_idx >= 9:
+            if hasattr(loss, 'grad_fn') and loss.grad_fn is not None:
+                print(f"DEBUG: loss.grad_fn = {loss.grad_fn}")
+            # 检查是否有任何参数在 backward 后立即有 NaN 梯度
+            print("DEBUG: Quick check - any NaN gradients immediately after backward?")
+            quick_nan_found = False
+            for name, param in model.named_parameters():
+                if param.grad is not None and torch.isnan(param.grad).any():
+                    if not quick_nan_found:
+                        print(f"  ❌ Found NaN gradients immediately after backward!")
+                        quick_nan_found = True
+                    print(f"    {name}: {torch.isnan(param.grad).sum()} NaN elements")
+            if not quick_nan_found:
+                print(f"  ✓ No NaN gradients immediately after backward")
+        
+        # 对所有batch检查梯度是否有NaN（关键检查）
+        grad_has_nan_any = False
+        for name, param in model.named_parameters():
+            if param.grad is not None and torch.isnan(param.grad).any():
+                grad_has_nan_any = True
+                if batch_idx < 9:  # 前几个batch如果发现NaN也要警告
+                    print(f"  ❌❌❌ CRITICAL: NaN gradient detected in {name} at batch {batch_idx + 1}! ❌❌❌")
+                break
+        
+        if grad_has_nan_any and batch_idx < 9:
+            print(f"  ⚠️  WARNING: Gradient contains NaN at batch {batch_idx + 1}, skipping update")
+            model.zero_grad()
+            continue
+        
+        # 插入详细的梯度检查：检查每代梯度（只对batch_idx >= 9打印详细信息）
+        if batch_idx >= 9:
+            print("=" * 60)
+            print(f"DEBUG: Detailed gradient check for batch {batch_idx + 1}")
+            print("=" * 60)
+            
+            total_grad_norm_squared = 0.0
+            has_any_nan = False
+            large_grad_count = 0
+            nan_grad_count = 0
+            
+            # 检查所有参数的梯度
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    # 检查梯度是否有 NaN
+                    grad_has_nan = torch.isnan(param.grad).any()
+                    if grad_has_nan:
+                        grad_nan_count = torch.isnan(param.grad).sum().item()
+                        print(f"  ❌ {name}:")
+                        print(f"     Gradient has NaN: {grad_nan_count} NaN elements out of {param.grad.numel()}")
+                        print(f"     Gradient shape: {param.grad.shape}")
+                        print(f"     Gradient min: NaN, max: NaN, mean: NaN, norm: NaN")
+                        has_any_nan = True
+                        nan_grad_count += 1
+                    else:
+                        # 计算梯度统计信息
+                        grad_norm = param.grad.norm().item()
+                        grad_max = param.grad.abs().max().item()
+                        grad_min = param.grad.abs().min().item()
+                        grad_mean = param.grad.abs().mean().item()
+                        grad_std = param.grad.std().item()
+                        
+                        total_grad_norm_squared += grad_norm ** 2
+                        
+                        # 检查梯度是否过大
+                        is_large = grad_norm > 100 or grad_max > 1000
+                        if is_large:
+                            large_grad_count += 1
+                            print(f"  ⚠️  {name}:")
+                            print(f"     Gradient norm: {grad_norm:.6f}")
+                            print(f"     Gradient max (abs): {grad_max:.6f}")
+                            print(f"     Gradient min (abs): {grad_min:.6f}")
+                            print(f"     Gradient mean (abs): {grad_mean:.6f}")
+                            print(f"     Gradient std: {grad_std:.6f}")
+                            print(f"     Gradient shape: {param.grad.shape}")
+                        else:
+                            # 即使不大也打印，方便观察
+                            print(f"  ✓ {name}:")
+                            print(f"     Gradient norm: {grad_norm:.6f}, max: {grad_max:.6f}, mean: {grad_mean:.6f}")
+                else:
+                    print(f"  ⚠️  {name}: gradient is None (not computed)")
+            
+            # 计算总梯度范数
+            if not has_any_nan:
+                total_grad_norm = total_grad_norm_squared ** 0.5
+                print(f"\nSummary:")
+                print(f"  Total gradient norm: {total_grad_norm:.6f}")
+                if total_grad_norm > 100:
+                    print(f"  ⚠️  WARNING: Total gradient norm is very large: {total_grad_norm:.6f}")
+                if large_grad_count > 0:
+                    print(f"  ⚠️  WARNING: {large_grad_count} parameters have large gradients (norm > 100 or max > 1000)")
+            else:
+                print(f"\n  ❌❌❌ CRITICAL: Gradients contain NaN values! ❌❌❌")
+                print(f"  {nan_grad_count} parameters have NaN gradients")
+                print(f"  This will cause weights to become NaN during update!")
+            
+            print("=" * 60)
+        
+        # 插入 print 13：检查更新前的权重
+        if batch_idx >= 9:
+            print("DEBUG: Checking weights BEFORE opt.step()...")
+            if hasattr(model, 'dl_model'):
+                for name, param in model.dl_model.named_parameters():
+                    if torch.isnan(param).any():
+                        print(f"  ❌ NaN in {name} BEFORE update!")
+        
         opt.step()  # Update network parameters based on gradients
+        
+        # 插入 print 14：检查更新后的权重
+        if batch_idx >= 9:
+            print("DEBUG: Checking weights AFTER opt.step()...")
+            if hasattr(model, 'dl_model'):
+                for name, param in model.dl_model.named_parameters():
+                    if torch.isnan(param).any():
+                        print(f"  ❌❌❌ NaN in {name} AFTER update! ❌❌❌")
+                        print(f"    This is the problem! Weight became NaN during update.")
+                    else:
+                        param_norm = param.norm().item()
+                        if param_norm > 1000:
+                            print(f"  ⚠️  Very large weight in {name}: norm={param_norm:.2f}")
+        
         model.zero_grad()  # clear gradient
         if loss == float("inf"):
             raise ValueError(
@@ -686,6 +999,10 @@ def torch_single_train(
             "All batch computations of loss result in NAN. Please check the data."
         )
     total_loss = running_loss / float(n_iter_ep)
+    
+    # 注意：不在这里停止输出捕获，保持在整个训练过程中活动
+    # 在最后一步调用 save_output_to_markdown() 来保存所有内容
+    
     return total_loss, n_iter_ep
 
 

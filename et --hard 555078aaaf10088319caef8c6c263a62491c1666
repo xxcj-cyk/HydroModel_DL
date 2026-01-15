@@ -1,0 +1,157 @@
+[33mcommit 04d1ac1608624998241a6c8b9789c6d759ba9469[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 22:27:14 2026 +0800
+
+    amp2
+
+[33mcommit 3eb3b26d6b765114688979a26b9bd14424a64795[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 22:20:10 2026 +0800
+
+    amp
+
+[33mcommit 555078aaaf10088319caef8c6c263a62491c1666[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 13:01:06 2026 +0800
+
+    xaj param sort
+
+[33mcommit 5d28d407e8d350a715606e5881da12ac76027981[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 12:40:03 2026 +0800
+
+    bestmodel match
+
+[33mcommit 238bf4ad9aa6e9e62d5026dc046a5756fafa2b9f[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 11:55:52 2026 +0800
+
+    bestmodel_epoch
+
+[33mcommit 2708fd2bc25057f7e210e8d2b8780fc0ceaeb4c1[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Jan 14 10:00:07 2026 +0800
+
+    save bestmodel
+
+[33mcommit bdcea54a2e9b7b79bd6b9c410f1d5620abec31eb[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Tue Jan 13 10:05:14 2026 +0800
+
+    xaj para
+
+[33mcommit 58ae672b0033186726a01f5929523011878b21e7[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Mon Jan 12 09:43:55 2026 +0800
+
+    loss+sample
+
+[33mcommit 39e255d7a8363ca9dca94efe48436ec5891e5e67[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Wed Dec 24 20:27:47 2025 +0800
+
+    ignore
+
+[33mcommit b9adb9e2c774b284b713eb97be667c8e30d17f24[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Tue Nov 25 15:07:28 2025 +0800
+
+    shap
+
+[33mcommit 2c9f046d0bf6560344d47ae850bed5d8bd572c5d[m[33m ([m[1;33mtag: v1.0[m[33m)[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sat Nov 8 15:48:27 2025 +0800
+
+    eng
+
+[33mcommit 4d65a15c0f3d9798936d7b98c078a182700a08ff[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Mon Sep 29 22:04:53 2025 +0800
+
+    flodd
+
+[33mcommit d35b0a1cb80b7248ac6bb800cbd3a17c7e37aeb0[m
+Author: silencesoup <silencesoup@outlook.com>
+Date:   Mon Jul 21 17:24:26 2025 +0800
+
+    upgrade for new eval way and dpl event
+
+[33mcommit eec72a5f19d111ace30fa559bf942913bec4d159[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Mon Jul 21 13:19:54 2025 +0800
+
+    1
+
+[33mcommit 2be52a5cc9127bc644587a578c86bf1eafc3f7c7[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sat Jul 19 13:47:08 2025 +0800
+
+    1
+
+[33mcommit eb3b0d071ac4f0f03e2b844cc2884fcac4c4e02e[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sat Jul 19 09:25:50 2025 +0800
+
+    loss and lstm new
+
+[33mcommit c785e85a33c624a415024f72c47408a3683eef4f[m
+Author: silencesoup <silencesoup@outlook.com>
+Date:   Fri Jul 18 16:34:05 2025 +0800
+
+    upgrade floodloss and flooddataset
+
+[33mcommit b39b34953627fde3447760cbd1fd15c5934ff56d[m
+Author: silencesoup <silencesoup@outlook.com>
+Date:   Fri Jul 18 14:27:37 2025 +0800
+
+    add multi-layer-lstm
+
+[33mcommit e2969f6555a24d3ea65e91a644a8f9cc33ff835d[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Mon Jul 14 10:04:41 2025 +0800
+
+    dir
+
+[33mcommit a1ab4d3e509f4b298653f4858d935ed0c7071e8f[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sun Jul 13 15:29:53 2025 +0800
+
+    dir
+
+[33mcommit c8c95b6f99f08f20124cd2ca576c46f9678154f5[m
+Merge: 92bd1ae 41e2b7f
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sun Jul 13 00:49:50 2025 +0800
+
+    datareader
+
+[33mcommit 92bd1ae3d46bdad288d848f3d227b3fa66a54121[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Sun Jul 13 00:48:22 2025 +0800
+
+    data_reader
+
+[33mcommit 41e2b7f6c406ea6e836055ff4ba9ae5bd30bfa41[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Thu Jul 10 09:50:42 2025 +0800
+
+    loss
+
+[33mcommit 824d3967bc17ad01d41bc939a92533416692c343[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Thu Jul 10 09:49:02 2025 +0800
+
+    flood event
+
+[33mcommit 8491141a339440afe7185267ebcbe81a661730c9[m
+Merge: ad05f73 95df69a
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Thu Jun 26 21:31:49 2025 +0800
+
+    loss function model_dict & dataset)_china
+
+[33mcommit ad05f7306b4afe95f18c0cc065ba6998c9aadb68[m
+Author: xxcj <cyk19951112@gmail.com>
+Date:   Thu Jun 26 21:30:09 2025 +0800
+
+    loss function model_dict & dataset)_china
