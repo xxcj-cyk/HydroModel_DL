@@ -2,8 +2,6 @@ import argparse
 import fnmatch
 import json
 import os
-import sys
-sys.path.append("/home/xxcj/Research/Paper3-1_FloodEvent_Anhui_3MComparison/HydroDataUtils/")
 import numpy as np
 import pandas as pd
 from hydrodatautils.foundation import hydro_dirction
@@ -245,6 +243,10 @@ def default_config_file():
             "multi_targets": 1,
             "num_workers": 0,
             "which_first_tensor": "sequence",
+            # AMP (Automatic Mixed Precision) training for faster training on CUDA devices
+            # Set to True to enable mixed precision training (recommended for CUDA 12.6+)
+            # This can significantly speed up training while maintaining numerical stability
+            "use_amp": False,
             # for ensemble exp:
             # basically we set kfold/seeds/hyper_params for trianing such as batch_sizes
             "ensemble": False,
@@ -363,6 +365,7 @@ def cmd(
     stat_dict_file=None,
     num_workers=None,
     which_first_tensor=None,
+    use_amp=None,
     ensemble=0,
     ensemble_items=None,
     early_stopping=None,
@@ -798,6 +801,13 @@ def cmd(
         type=str,
     )
     parser.add_argument(
+        "--use_amp",
+        dest="use_amp",
+        help="Enable Automatic Mixed Precision training for faster training on CUDA devices (True/False)",
+        default=use_amp,
+        type=lambda x: (str(x).lower() == 'true'),
+    )
+    parser.add_argument(
         "--lr_scheduler",
         dest="lr_scheduler",
         help="The learning rate scheduler",
@@ -1105,6 +1115,8 @@ def update_cfg(cfg_file, new_args):
         cfg_file["training_cfgs"]["num_workers"] = new_args.num_workers
     if new_args.which_first_tensor is not None:
         cfg_file["training_cfgs"]["which_first_tensor"] = new_args.which_first_tensor
+    if new_args.use_amp is not None:
+        cfg_file["training_cfgs"]["use_amp"] = new_args.use_amp
     if new_args.ensemble == 0:
         cfg_file["training_cfgs"]["ensemble"] = False
     else:

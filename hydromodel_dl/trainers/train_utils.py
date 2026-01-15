@@ -12,6 +12,7 @@ import numpy as np
 import xarray as xr
 import torch
 import torch.optim as optim
+from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 
 from hydrodatautils.foundation.hydro_statistic import statistic_nd_error
