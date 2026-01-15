@@ -238,6 +238,9 @@ def default_config_file():
             # extract_xaj_params: if True, extract and save XAJ parameters for DplLstmXaj models
             # Parameters will be grouped by basin and saved in history and best files
             "extract_xaj_params": False,
+            # use_amp: if True, enable Automatic Mixed Precision (AMP) training for faster training on CUDA GPUs
+            # AMP can significantly speed up training on modern GPUs (e.g., CUDA 12.6) with minimal accuracy loss
+            "use_amp": False,
             "device": [0, 1, 2],
             "multi_targets": 1,
             "num_workers": 0,

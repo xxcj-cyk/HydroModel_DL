@@ -190,7 +190,18 @@ def _extract_xaj_params_by_basin(model, data_loader, device, seq_first):
             else:
                 params_by_basin_averaged[basin_id][param_name] = []
     
-    return params_by_basin_averaged
+    # Sort basins by ID before returning
+    def _basin_sort_key(basin_id):
+        """Sort key for basin IDs - handles both numeric and string IDs"""
+        try:
+            # Try to convert to int for numeric sorting
+            return (0, int(basin_id))
+        except (ValueError, TypeError):
+            # If not numeric, sort as string
+            return (1, str(basin_id))
+    
+    sorted_basin_ids = sorted(params_by_basin_averaged.keys(), key=_basin_sort_key)
+    return {basin_id: params_by_basin_averaged[basin_id] for basin_id in sorted_basin_ids}
 
 
 def model_infer(seq_first, device, model, xs, ys, return_xaj_params=False):
@@ -606,6 +617,7 @@ def torch_single_train(
     criterion,
     data_loader: DataLoader,
     device=None,
+    scaler=None,
     **kwargs,
 ) -> float:
     """
@@ -623,6 +635,8 @@ def torch_single_train(
         object for loading data to the model
     device
         where we put the tensors and models
+    scaler
+        GradScaler for mixed precision training. If None, use regular precision.
 
     Returns
     -------
@@ -642,6 +656,9 @@ def torch_single_train(
     seq_first = which_first_tensor != "batch"
     pbar = tqdm(data_loader)
 
+    # Determine if using AMP
+    use_amp = scaler is not None
+    
     for _, batch_data in enumerate(pbar):
         # Handle different data formats: (src, trg) or (src, trg, event_ids)
         if len(batch_data) == 3:
@@ -650,19 +667,35 @@ def torch_single_train(
             src, trg = batch_data
             event_ids = None
         
-        trg, output = model_infer(seq_first, device, model, src, trg)
-
-        # Pass event_ids to compute_loss if available
-        if event_ids is not None:
-            kwargs["event_ids"] = event_ids
+        # Use autocast for mixed precision training
+        if use_amp:
+            with torch.cuda.amp.autocast():
+                trg, output = model_infer(seq_first, device, model, src, trg)
+                # Pass event_ids to compute_loss if available
+                if event_ids is not None:
+                    kwargs["event_ids"] = event_ids
+                loss = compute_loss(trg, output, criterion, **kwargs)
+        else:
+            trg, output = model_infer(seq_first, device, model, src, trg)
+            # Pass event_ids to compute_loss if available
+            if event_ids is not None:
+                kwargs["event_ids"] = event_ids
+            loss = compute_loss(trg, output, criterion, **kwargs)
         
-        loss = compute_loss(trg, output, criterion, **kwargs)
         if loss > 100:
             print("Warning: high loss detected")
         if torch.isnan(loss):
             continue
-        loss.backward()  # Backpropagate to compute the current gradient
-        opt.step()  # Update network parameters based on gradients
+        
+        # Backward pass with or without scaler
+        if use_amp:
+            scaler.scale(loss).backward()  # Backpropagate with gradient scaling
+            scaler.step(opt)  # Update network parameters
+            scaler.update()  # Update the scale for next iteration
+        else:
+            loss.backward()  # Backpropagate to compute the current gradient
+            opt.step()  # Update network parameters based on gradients
+        
         model.zero_grad()  # clear gradient
         if loss == float("inf"):
             raise ValueError(
@@ -683,6 +716,7 @@ def compute_validation(
     criterion,
     data_loader: DataLoader,
     device: torch.device = None,
+    use_amp: bool = False,
     **kwargs,
 ) -> float:
     """
@@ -698,6 +732,8 @@ def compute_validation(
         The data-loader of either validation or test-data
     device
         torch.device
+    use_amp
+        if True, use mixed precision for faster inference
 
     Returns
     -------
@@ -725,7 +761,12 @@ def compute_validation(
                 src, trg = batch_data
                 event_ids = None
             
-            trg, output = model_infer(seq_first, device, model, src, trg)
+            # Use autocast for mixed precision inference if enabled
+            if use_amp:
+                with torch.cuda.amp.autocast():
+                    trg, output = model_infer(seq_first, device, model, src, trg)
+            else:
+                trg, output = model_infer(seq_first, device, model, src, trg)
             obs.append(trg)
             preds.append(output)
         # first dim is batch

@@ -228,6 +228,18 @@ class DeepHydro(DeepHydroInterface):
         data_loader, validation_data_loader = self._get_dataloader(
             training_cfgs, data_cfgs
         )
+        
+        # Initialize GradScaler for mixed precision training if enabled
+        use_amp = training_cfgs.get("use_amp", False)
+        scaler = None
+        if use_amp:
+            if not torch.cuda.is_available():
+                print("Warning: AMP is enabled but CUDA is not available. Disabling AMP.")
+                use_amp = False
+            else:
+                scaler = torch.cuda.amp.GradScaler()
+                print("AMP (Automatic Mixed Precision) training enabled. This can speed up training on CUDA GPUs.")
+        
         logger = TrainLogger(model_filepath, self.cfgs, opt)
         for epoch in range(start_epoch, max_epochs + 1):
             with logger.log_epoch_train(epoch) as train_logs:
@@ -237,6 +249,7 @@ class DeepHydro(DeepHydroInterface):
                     criterion,
                     data_loader,
                     device=self.device,
+                    scaler=scaler,
                     which_first_tensor=training_cfgs["which_first_tensor"],
                 )
                 train_logs["train_loss"] = total_loss
@@ -323,11 +336,13 @@ class DeepHydro(DeepHydroInterface):
     def _1epoch_valid(
         self, training_cfgs, criterion, validation_data_loader, valid_logs
     ):
+        use_amp = training_cfgs.get("use_amp", False)
         valid_obss_np, valid_preds_np, valid_loss = compute_validation(
             self.model,
             criterion,
             validation_data_loader,
             device=self.device,
+            use_amp=use_amp,
             which_first_tensor=training_cfgs["which_first_tensor"],
         )
         valid_logs["valid_loss"] = valid_loss
