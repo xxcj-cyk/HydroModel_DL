@@ -670,7 +670,7 @@ def torch_single_train(
         
         # Use autocast for mixed precision training
         if use_amp:
-            with torch.cuda.amp.autocast():
+            with autocast(device_type='cuda'):
                 trg, output = model_infer(seq_first, device, model, src, trg)
                 # Pass event_ids to compute_loss if available
                 if event_ids is not None:
@@ -764,7 +764,7 @@ def compute_validation(
             
             # Use autocast for mixed precision inference if enabled
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with autocast(device_type='cuda'):
                     trg, output = model_infer(seq_first, device, model, src, trg)
             else:
                 trg, output = model_infer(seq_first, device, model, src, trg)

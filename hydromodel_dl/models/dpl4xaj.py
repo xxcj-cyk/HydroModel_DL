@@ -89,7 +89,12 @@ def calculate_prcp_runoff(b, im, wm, w0, pe):
         r -- runoff; r_im -- runoff of impervious part
     """
     wmm = wm * (1 + b)
-    a = wmm * (1 - (1 - w0 / wm) ** (1 / (1 + b)))
+    # Clamp w0/wm to avoid numerical instability in exponentiation
+    # Ensure w0/wm is in [PRECISION, 1-PRECISION] to avoid 0^power or 1^power issues
+    w0_wm_ratio = torch.clamp(w0 / wm, min=PRECISION, max=1.0 - PRECISION)
+    # Clamp 1+b to avoid division by zero or very small values
+    one_plus_b = torch.clamp(1 + b, min=PRECISION)
+    a = wmm * (1 - (1 - w0_wm_ratio) ** (1 / one_plus_b))
     if any(torch.isnan(a)):
         raise ValueError(
             "Error: NaN values detected. Try set clamp function or check your data!!!"
@@ -99,7 +104,8 @@ def calculate_prcp_runoff(b, im, wm, w0, pe):
         torch.where(
             pe + a < wmm,
             # torch.clamp is used for gradient not to be NaN, see more in xaj_sources function
-            pe - (wm - w0) + wm * (1 - torch.clamp(a + pe, max=wmm) / wmm) ** (1 + b),
+            # Clamp the ratio to avoid numerical instability in exponentiation
+            pe - (wm - w0) + wm * (1 - torch.clamp(a + pe, max=wmm - PRECISION) / wmm) ** one_plus_b,
             pe - (wm - w0),
         ),
         torch.full(pe.size(), 0.0).to(pe.device),
@@ -340,23 +346,29 @@ def xaj_sources(
     # fr just use fr0, and it can be included in the computation graph, so we don't detach it
     fr = torch.clone(fr0)
     fr_mask = r > 0.0
-    fr[fr_mask] = r[fr_mask] / pe[fr_mask]
+    # Add epsilon to pe to avoid division by zero or numerical instability
+    pe_safe = torch.clamp(pe, min=PRECISION)
+    fr[fr_mask] = r[fr_mask] / pe_safe[fr_mask]
+    # Clamp fr to avoid extreme values that may cause numerical issues
+    fr = torch.clamp(fr, min=PRECISION, max=1.0)
     if any(torch.isnan(fr)):
         raise ValueError(
             "Error: NaN values detected. Try set clamp function or check your data!!!"
         )
-    if any(fr == 0.0):
-        raise ArithmeticError(
-            "Please check fr's value, fr==0.0 will cause error in the next step!"
-        )
     ss = torch.clone(s0)
     s = torch.clone(s0)
 
-    ss[fr_mask] = fr0[fr_mask] * s0[fr_mask] / fr[fr_mask]
+    # Ensure fr is not zero to avoid division by zero
+    fr_safe = torch.clamp(fr, min=PRECISION)
+    ss[fr_mask] = fr0[fr_mask] * s0[fr_mask] / fr_safe[fr_mask]
 
     if book == "HF":
         ss = torch.clamp(ss, max=sm - PRECISION)
-        au = ms * (1.0 - (1.0 - ss / sm) ** (1.0 / (1.0 + ex)))
+        # Clamp ss/sm ratio to avoid numerical instability in exponentiation
+        ss_sm_ratio = torch.clamp(ss / sm, min=PRECISION, max=1.0 - PRECISION)
+        # Clamp 1+ex to avoid division by zero or very small values
+        one_plus_ex = torch.clamp(1.0 + ex, min=PRECISION)
+        au = ms * (1.0 - (1.0 - ss_sm_ratio) ** (1.0 / one_plus_ex))
         if any(torch.isnan(au)):
             raise ValueError(
                 "Error: NaN values detected. Try set clamp function or check your data!!!"
@@ -394,13 +406,20 @@ def xaj_sources(
         # we need firstly calculate the updated s, s's mask is same as fr_mask,
         # when r==0, then s will be equal to last period's
         # equation 2-87 in HF, some free water leave or save, so we update free water storage
-        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr[fr_mask]
+        # Use fr_safe to avoid division by zero
+        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr_safe[fr_mask]
         s = torch.clamp(s, max=sm)
     elif book == "EH":
-        smmf = ms * (1 - (1 - fr) ** (1 / ex))
-        smf = smmf / (1 + ex)
+        # Clamp fr and ex to avoid numerical instability
+        fr_clamped = torch.clamp(fr, min=PRECISION, max=1.0 - PRECISION)
+        ex_clamped = torch.clamp(ex, min=PRECISION)
+        smmf = ms * (1 - (1 - fr_clamped) ** (1 / ex_clamped))
+        one_plus_ex = torch.clamp(1 + ex, min=PRECISION)
+        smf = smmf / one_plus_ex
         ss = torch.clamp(ss, max=smf - PRECISION)
-        au = smmf * (1 - (1 - ss / smf) ** (1 / (1 + ex)))
+        # Clamp ss/smf ratio to avoid numerical instability in exponentiation
+        ss_smf_ratio = torch.clamp(ss / smf, min=PRECISION, max=1.0 - PRECISION)
+        au = smmf * (1 - (1 - ss_smf_ratio) ** (1 / one_plus_ex))
         if torch.isnan(au).any():
             raise ArithmeticError(
                 "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -423,11 +442,11 @@ def xaj_sources(
                 )
                 ** (ex[fr_mask] + 1)
             )
-            * fr[fr_mask],
-            (pe[fr_mask] + ss[fr_mask] - smf[fr_mask]) * fr[fr_mask],
+            * fr_safe[fr_mask],
+            (pe[fr_mask] + ss[fr_mask] - smf[fr_mask]) * fr_safe[fr_mask],
         )
         rs = torch.clamp(rs, max=r)
-        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr[fr_mask]
+        s[fr_mask] = ss[fr_mask] + (r[fr_mask] - rs[fr_mask]) / fr_safe[fr_mask]
         s[fr_mask] = torch.clamp(s[fr_mask], max=smf[fr_mask])
         s = torch.clamp(s, max=smf)
     else:
@@ -498,7 +517,11 @@ def xaj_sources5mm(
         s0 = 0.5 * (sm.clone().detach())
     fr = torch.clone(fr0)
     fr_mask = runoff > 0.0
-    fr[fr_mask] = runoff[fr_mask] / pe[fr_mask]
+    # Add epsilon to pe to avoid division by zero or numerical instability
+    pe_safe = torch.clamp(pe, min=PRECISION)
+    fr[fr_mask] = runoff[fr_mask] / pe_safe[fr_mask]
+    # Clamp fr to avoid extreme values that may cause numerical issues
+    fr = torch.clamp(fr, min=PRECISION, max=1.0)
     if torch.all(runoff < 5):
         n = 1
     else:
@@ -536,12 +559,18 @@ def xaj_sources5mm(
         ss_d = torch.clone(s0_d)
         s_d = torch.clone(s0_d)
 
-        ss_d[fr_mask] = fr0_d[fr_mask] * s0_d[fr_mask] / fr_d[fr_mask]
+        # Ensure fr_d is not zero to avoid division by zero
+        fr_d_safe = torch.clamp(fr_d, min=PRECISION)
+        ss_d[fr_mask] = fr0_d[fr_mask] * s0_d[fr_mask] / fr_d_safe[fr_mask]
 
         if book == "HF":
             # ms = smm
             ss_d = torch.clamp(ss_d, max=sm - PRECISION)
-            au = smm * (1.0 - (1.0 - ss_d / sm) ** (1.0 / (1.0 + ex)))
+            # Clamp ss_d/sm ratio to avoid numerical instability in exponentiation
+            ss_d_sm_ratio = torch.clamp(ss_d / sm, min=PRECISION, max=1.0 - PRECISION)
+            # Clamp 1+ex to avoid division by zero or very small values
+            one_plus_ex = torch.clamp(1.0 + ex, min=PRECISION)
+            au = smm * (1.0 - (1.0 - ss_d_sm_ratio) ** (1.0 / one_plus_ex))
             if torch.isnan(au).any():
                 raise ValueError(
                     "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -569,14 +598,20 @@ def xaj_sources5mm(
                 fr_d[fr_mask] * (pen[fr_mask] + ss_d[fr_mask] - sm[fr_mask]),
             )
             rs_j = torch.clamp(rs_j, max=rn)
-            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d[fr_mask]
+            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d_safe[fr_mask]
             s_d = torch.clamp(s_d, max=sm)
 
         elif book == "EH":
-            smmf = smm * (1 - (1 - fr_d) ** (1 / ex))
-            smf = smmf / (1 + ex)
+            # Clamp fr_d and ex to avoid numerical instability
+            fr_d_clamped = torch.clamp(fr_d, min=PRECISION, max=1.0 - PRECISION)
+            ex_clamped = torch.clamp(ex, min=PRECISION)
+            smmf = smm * (1 - (1 - fr_d_clamped) ** (1 / ex_clamped))
+            one_plus_ex = torch.clamp(1 + ex, min=PRECISION)
+            smf = smmf / one_plus_ex
             ss_d = torch.clamp(ss_d, max=smf - PRECISION)
-            au = smmf * (1 - (1 - ss_d / smf) ** (1 / (1 + ex)))
+            # Clamp ss_d/smf ratio to avoid numerical instability in exponentiation
+            ss_d_smf_ratio = torch.clamp(ss_d / smf, min=PRECISION, max=1.0 - PRECISION)
+            au = smmf * (1 - (1 - ss_d_smf_ratio) ** (1 / one_plus_ex))
             if torch.isnan(au).any():
                 raise ValueError(
                     "Error: NaN values detected. Try set clip function or check your data!!!"
@@ -599,11 +634,11 @@ def xaj_sources5mm(
                     )
                     ** (ex[fr_mask] + 1)
                 )
-                * fr_d[fr_mask],
-                (pen[fr_mask] + ss_d[fr_mask] - smf[fr_mask]) * fr_d[fr_mask],
+                * fr_d_safe[fr_mask],
+                (pen[fr_mask] + ss_d[fr_mask] - smf[fr_mask]) * fr_d_safe[fr_mask],
             )
             rs_j = torch.clamp(rs_j, max=rn)
-            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d[fr_mask]
+            s_d[fr_mask] = ss_d[fr_mask] + (rn[fr_mask] - rs_j[fr_mask]) / fr_d_safe[fr_mask]
             s_d = torch.clamp(s_d, max=smf)
         else:
             raise NotImplementedError(

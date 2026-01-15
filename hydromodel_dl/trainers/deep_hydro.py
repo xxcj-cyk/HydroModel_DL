@@ -250,7 +250,7 @@ class DeepHydro(DeepHydroInterface):
                 print("Warning: AMP is enabled but CUDA is not available. Disabling AMP.")
                 use_amp = False
             else:
-                scaler = torch.cuda.amp.GradScaler()
+                scaler = GradScaler()
                 print("AMP (Automatic Mixed Precision) training enabled. This can speed up training on CUDA GPUs.")
         
         logger = TrainLogger(model_filepath, self.cfgs, opt)
